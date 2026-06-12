@@ -1,5 +1,6 @@
 import type { CalendarDay, DateKey, LunarDate, MonthCalendar, TimeBranch } from '@/types/calendar'
 import { getLocalHolidayByDate } from './holidays'
+import { getLuckyMarkMap } from './lucky-marks'
 
 export const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
 
@@ -129,6 +130,7 @@ export function getMonthCalendar(year: number, month: number, selectedKey = getT
   const startOffset = firstDay.getDay()
   const startDate = new Date(year, month - 1, 1 - startOffset)
   const todayKey = getTodayKey()
+  const luckyMarkMap = getLuckyMarkMap()
   const days: CalendarDay[] = []
 
   for (let index = 0; index < 42; index += 1) {
@@ -138,6 +140,7 @@ export function getMonthCalendar(year: number, month: number, selectedKey = getT
     const monthDay = `${pad2(current.getMonth() + 1)}-${pad2(current.getDate())}`
     const lunarDate = getLunarDate(current)
     const holidayItem = getLocalHolidayByDate(dateKey)
+    const luckyMark = luckyMarkMap[dateKey]
     days.push({
       date: current,
       dateKey,
@@ -153,7 +156,8 @@ export function getMonthCalendar(year: number, month: number, selectedKey = getT
       holidayType: holidayItem?.type,
       isToday: dateKey === todayKey,
       isSelected: dateKey === selectedKey,
-      isCurrentMonth: current.getMonth() + 1 === month
+      isCurrentMonth: current.getMonth() + 1 === month,
+      luckyMarkColor: luckyMark ? (luckyMark.level === '大吉' ? 'var(--gs-gold)' : 'var(--gs-blue)') : undefined
     })
   }
 

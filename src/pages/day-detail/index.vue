@@ -5,7 +5,7 @@ import HourAdviceCard from '@/components/HourAdviceCard.vue'
 import TimeCompass from '@/components/TimeCompass.vue'
 import TimelineView from '@/components/TimelineView.vue'
 import type { DayAlmanac, HourAlmanac } from '@/types/almanac'
-import { fetchDayAlmanac, getDayAlmanac } from '@/services/almanac'
+import { getDayAlmanac, loadAlmanacMappings } from '@/services/almanac'
 import type { DateKey } from '@/types/calendar'
 import { getTodayKey, isDateKey } from '@/services/calendar'
 import { getZodiacById, getZodiacFortune } from '@/services/zodiac'
@@ -27,7 +27,7 @@ const zodiacFortunePreview = computed(() => {
   return getZodiacFortune(zodiacId.value, dateKey.value)
 })
 
-let almanacRequestId = 0
+let almanacMappingsRequestId = 0
 
 onLoad((query) => {
   if (query?.date && typeof query.date === 'string' && isDateKey(query.date)) {
@@ -39,24 +39,27 @@ onLoad((query) => {
 watch(
   dateKey,
   (currentDateKey) => {
-    void loadAlmanac(currentDateKey)
+    updateAlmanac(currentDateKey)
+    void loadAlmanacMappingConfig(currentDateKey)
   },
   { immediate: true }
 )
 
-async function loadAlmanac(currentDateKey: DateKey): Promise<void> {
-  const requestId = ++almanacRequestId
-  const localAlmanac = getDayAlmanac(currentDateKey)
-  almanac.value = localAlmanac
-  selectedHourId.value = getDefaultHourId(localAlmanac)
+function updateAlmanac(currentDateKey: DateKey, resetHour = true): void {
+  const nextAlmanac = getDayAlmanac(currentDateKey)
+  almanac.value = nextAlmanac
 
-  const loadedAlmanac = await fetchDayAlmanac(currentDateKey)
-  if (requestId !== almanacRequestId || currentDateKey !== dateKey.value) return
-
-  almanac.value = loadedAlmanac
-  if (!loadedAlmanac.hours.some((hour) => hour.branch.id === selectedHourId.value)) {
-    selectedHourId.value = getDefaultHourId(loadedAlmanac)
+  if (resetHour || !nextAlmanac.hours.some((hour) => hour.branch.id === selectedHourId.value)) {
+    selectedHourId.value = getDefaultHourId(nextAlmanac)
   }
+}
+
+async function loadAlmanacMappingConfig(currentDateKey: DateKey): Promise<void> {
+  const requestId = ++almanacMappingsRequestId
+  const localAlmanac = getDayAlmanac(currentDateKey)
+  await loadAlmanacMappings(localAlmanac.traditionalSuitable)
+  if (requestId !== almanacMappingsRequestId || currentDateKey !== dateKey.value) return
+  updateAlmanac(currentDateKey, false)
 }
 
 function getDefaultHourId(dayAlmanac: DayAlmanac): number {
@@ -100,7 +103,7 @@ function openZodiac(): void {
     has_set_zodiac: Boolean(zodiacId.value)
   })
   uni.navigateTo({
-    url: `/pages/zodiac/index?date=${dateKey.value}`
+    url: `/pages/fortune/index?date=${dateKey.value}`
   })
 }
 </script>

@@ -262,11 +262,17 @@ async function centerSelectedHour(): Promise<void> {
   top: 50%;
   right: 20rpx;
   transform: translateY(-50%);
-  display: inline-block;
-  padding: 4rpx 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52rpx;
+  height: 36rpx;
+  padding: 0;
   border-radius: 8rpx;
   font-size: 20rpx;
   font-weight: 600;
+  line-height: 1;
+  text-align: center;
 }
 
 .tag-good {

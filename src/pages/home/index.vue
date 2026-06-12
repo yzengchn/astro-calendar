@@ -7,7 +7,7 @@ import TimelineView from '@/components/TimelineView.vue'
 import type { DayAlmanac, HourAlmanac } from '@/types/almanac'
 import type { CalendarDay, DateKey, HolidayItem } from '@/types/calendar'
 import { formatDateKey, getMonthCalendar, getTodayKey, isDateKey, parseDateKey, WEEKDAYS } from '@/services/calendar'
-import { fetchDayAlmanac, getDayAlmanac } from '@/services/almanac'
+import { getDayAlmanac, loadAlmanacMappings } from '@/services/almanac'
 import { applyHolidayItems, fetchHolidayMonth } from '@/services/holidays'
 import { getZodiacById, getZodiacFortune } from '@/services/zodiac'
 import { getStorage, lightHaptic, setStorage, trackEvent } from '@/services/platform'
@@ -16,6 +16,9 @@ import { getPeriodByDate } from '@/services/seventy-two-periods'
 import { getSeasonSpecial } from '@/services/season-special'
 import { getMoonPhase } from '@/services/moon-phase'
 import { OCCASIONS } from '@/services/lucky-days'
+import { getLuckyMarkForDate } from '@/services/lucky-marks'
+import CustomTabBar from '@/components/CustomTabBar.vue'
+import { getBaziInfo } from '@/services/bazi'
 
 type ViewMode = 'compass' | 'timeline'
 type CalendarViewMode = 'year' | 'month' | 'week' | 'day'
@@ -41,14 +44,14 @@ const todayKey = getTodayKey()
 const storedSelected = getStorage('selected_date', todayKey)
 const initialSelected = isDateKey(storedSelected) ? storedSelected : todayKey
 const initialDate = parseDateKey(initialSelected)
-const storedViewMode = getStorage<string>('time_view_preference', 'compass')
+const storedViewMode = getStorage<string>('time_view_preference', 'timeline')
 const storedCalendarView = getStorage<string>('calendar_view_preference', 'month')
 
 const currentYear = ref(initialDate.getFullYear())
 const currentMonth = ref(initialDate.getMonth() + 1)
 const selectedDateKey = ref<DateKey>(initialSelected)
 const touchStartX = ref(0)
-const viewMode = ref<ViewMode>(storedViewMode === 'timeline' ? 'timeline' : 'compass')
+const viewMode = ref<ViewMode>(storedViewMode === 'compass' ? 'compass' : 'timeline')
 const calendarViewMode = ref<CalendarViewMode>(isCalendarViewMode(storedCalendarView) ? storedCalendarView : 'month')
 const isMenuOpen = ref(false)
 const isTraditionalOpen = ref(false)
@@ -56,11 +59,15 @@ const selectedHourId = ref(0)
 const zodiacId = ref<string | null>(getStorage('user_zodiac_sign', null))
 const remoteHolidayItems = ref<HolidayItem[]>([])
 const activeInfoDetail = ref<InfoDetail | null>(null)
+const luckyMarksVersion = ref(0)
 
 let holidayRequestId = 0
-let almanacRequestId = 0
+let almanacMappingsRequestId = 0
 
-const baseMonthCalendar = computed(() => getMonthCalendar(currentYear.value, currentMonth.value, selectedDateKey.value))
+const baseMonthCalendar = computed(() => {
+  luckyMarksVersion.value // depend on version to force recompute
+  return getMonthCalendar(currentYear.value, currentMonth.value, selectedDateKey.value)
+})
 const monthCalendar = computed(() => applyHolidayItems(baseMonthCalendar.value, remoteHolidayItems.value))
 const selectedDay = computed(() => monthCalendar.value.days.find((day) => day.dateKey === selectedDateKey.value))
 const selectedAlmanac = ref(getDayAlmanac(selectedDateKey.value))
@@ -68,6 +75,10 @@ const zodiacSign = computed(() => getZodiacById(zodiacId.value))
 const zodiacFortunePreview = computed(() => {
   if (!zodiacId.value || !zodiacSign.value) return null
   return getZodiacFortune(zodiacId.value, selectedDateKey.value)
+})
+const activeLuckyMark = computed(() => {
+  luckyMarksVersion.value // depend on version
+  return getLuckyMarkForDate(selectedDateKey.value)
 })
 const selectedDate = computed(() => parseDateKey(selectedDateKey.value))
 const currentMonthDay = computed(() => {
@@ -98,7 +109,7 @@ const seasonSpecialSubtitle = computed(() => {
 })
 const seasonSpecialSummary = computed(() => {
   const item = seasonSpecial.value
-  if (!item) return '当前不在数九或三伏，按日常时令节奏安排即可'
+  if (!item) return '顺时而行即可'
   return item.data.modern
 })
 const moonPhase = computed(() => getMoonPhase(selectedDate.value))
@@ -189,12 +200,15 @@ onShow(() => {
     currentMonth.value = storedDate.getMonth() + 1
   }
   zodiacId.value = getStorage('user_zodiac_sign', null)
+  luckyMarksVersion.value += 1 // refresh lucky marks from storage
+  void loadAlmanacMappingConfig(selectedDateKey.value)
 })
 
 watch(
   selectedDateKey,
   (dateKey) => {
-    void loadSelectedAlmanac(dateKey)
+    updateSelectedAlmanac(dateKey)
+    void loadAlmanacMappingConfig(dateKey)
   },
   { immediate: true }
 )
@@ -224,19 +238,21 @@ async function loadHolidayData(): Promise<void> {
   }
 }
 
-async function loadSelectedAlmanac(dateKey: DateKey): Promise<void> {
-  const requestId = ++almanacRequestId
-  const localAlmanac = getDayAlmanac(dateKey)
-  selectedAlmanac.value = localAlmanac
-  selectedHourId.value = getDefaultHourId(localAlmanac)
+function updateSelectedAlmanac(dateKey: DateKey, resetHour = true): void {
+  const nextAlmanac = getDayAlmanac(dateKey)
+  selectedAlmanac.value = nextAlmanac
 
-  const loadedAlmanac = await fetchDayAlmanac(dateKey)
-  if (requestId !== almanacRequestId || dateKey !== selectedDateKey.value) return
-
-  selectedAlmanac.value = loadedAlmanac
-  if (!loadedAlmanac.hours.some((hour) => hour.branch.id === selectedHourId.value)) {
-    selectedHourId.value = getDefaultHourId(loadedAlmanac)
+  if (resetHour || !nextAlmanac.hours.some((hour) => hour.branch.id === selectedHourId.value)) {
+    selectedHourId.value = getDefaultHourId(nextAlmanac)
   }
+}
+
+async function loadAlmanacMappingConfig(dateKey: DateKey): Promise<void> {
+  const requestId = ++almanacMappingsRequestId
+  const localAlmanac = getDayAlmanac(dateKey)
+  await loadAlmanacMappings(localAlmanac.traditionalSuitable)
+  if (requestId !== almanacMappingsRequestId || dateKey !== selectedDateKey.value) return
+  updateSelectedAlmanac(dateKey, false)
 }
 
 function getDefaultHourId(almanac: DayAlmanac): number {
@@ -441,28 +457,41 @@ function openZodiac(): void {
     has_set_zodiac: Boolean(zodiacId.value),
     source: 'home_inline_detail'
   })
-  uni.navigateTo({
-    url: `/pages/zodiac/index?date=${selectedDateKey.value}`
-  })
+  uni.switchTab({ url: '/pages/fortune/index' })
 }
 
 function openLuckyDays(): void {
   trackEvent('lucky_days_entry_click', {
     source: 'home_inline_detail'
   })
-  uni.navigateTo({
-    url: `/pages/lucky-days/index?date=${selectedDateKey.value}`
-  })
+  uni.switchTab({ url: '/pages/lucky-days/index' })
 }
 
 function openBazi(): void {
   trackEvent('bazi_entry_click', {
-    source: 'home_inline_detail'
+    source: 'side_menu'
   })
-  uni.navigateTo({
-    url: '/pages/bazi/index'
-  })
+  closeMenu()
+  uni.switchTab({ url: '/pages/zodiac/index' })
 }
+
+function openBlessing(): void {
+  trackEvent('blessing_entry_click', {
+    source: 'side_menu'
+  })
+  closeMenu()
+  uni.switchTab({ url: '/pages/blessing/index' })
+}
+
+function openFortune(): void {
+  trackEvent('fortune_entry_click', {
+    source: 'side_menu'
+  })
+  closeMenu()
+  uni.switchTab({ url: '/pages/fortune/index' })
+}
+
+const hasBazi = computed(() => Boolean(getBaziInfo()))
 </script>
 
 <template>
@@ -474,18 +503,55 @@ function openBazi(): void {
             <text class="side-date-main">{{ currentYear }}年{{ currentMonth }}月</text>
             <text class="side-date-sub">{{ selectedAlmanac.weekdayText }}</text>
           </view>
-          <button class="settings-button" aria-label="设置" @tap.stop="openSettings">⚙</button>
         </view>
-        <view class="calendar-view-list">
-          <button
-            v-for="option in CALENDAR_VIEW_OPTIONS"
-            :key="option.id"
-            class="calendar-view-button"
-            :class="{ 'calendar-view-button-active': calendarViewMode === option.id }"
-            @tap="setCalendarViewMode(option.id)"
-          >
-            {{ option.label }}
-          </button>
+        <view class="side-menu-section">
+          <text class="side-menu-section-title">日历视图</text>
+          <view class="calendar-view-list">
+            <view
+              v-for="option in CALENDAR_VIEW_OPTIONS"
+              :key="option.id"
+              class="calendar-view-button"
+              :class="{ 'calendar-view-button-active': calendarViewMode === option.id }"
+              role="button"
+              @tap="setCalendarViewMode(option.id)"
+            >
+              {{ option.label }}
+            </view>
+          </view>
+        </view>
+        <view class="side-menu-divider"></view>
+        <view class="side-menu-section">
+          <text class="side-menu-section-title">个人</text>
+          <view class="side-menu-item" role="button" @tap="openBazi">
+            <text class="side-menu-item-icon">🔮</text>
+            <view class="side-menu-item-copy">
+              <text class="side-menu-item-label">个人八字</text>
+              <text class="side-menu-item-hint">{{ hasBazi ? '已设置' : '未设置' }}</text>
+            </view>
+          </view>
+          <view class="side-menu-item" role="button" @tap="openBlessing">
+            <text class="side-menu-item-icon">🏮</text>
+            <view class="side-menu-item-copy">
+              <text class="side-menu-item-label">祈福点灯</text>
+              <text class="side-menu-item-hint">吉时祈福</text>
+            </view>
+          </view>
+          <view class="side-menu-item" role="button" @tap="openFortune">
+            <text class="side-menu-item-icon">✨</text>
+            <view class="side-menu-item-copy">
+              <text class="side-menu-item-label">今日运势</text>
+              <text class="side-menu-item-hint">综合运势总览</text>
+            </view>
+          </view>
+        </view>
+        <view class="side-menu-divider"></view>
+        <view class="side-menu-section">
+          <view class="side-menu-item" role="button" @tap="openSettings">
+            <text class="side-menu-item-icon">⚙</text>
+            <view class="side-menu-item-copy">
+              <text class="side-menu-item-label">设置</text>
+            </view>
+          </view>
         </view>
       </view>
     </view>
@@ -559,6 +625,7 @@ function openBazi(): void {
           >
             <text v-if="day.holidayTag" class="date-tag" :class="{ 'date-tag-work': day.holidayTag === '班' }">{{ day.holidayTag }}</text>
             <view class="date-head">
+              <view v-if="day.luckyMarkColor" class="date-lucky-dot" :style="{ background: day.luckyMarkColor }"></view>
               <text class="date-number">{{ day.day }}</text>
             </view>
             <text class="date-lunar">{{ day.solarTerm || day.festival || day.lunarLabel }}</text>
@@ -573,6 +640,10 @@ function openBazi(): void {
         <text class="hero-date">{{ selectedAlmanac.title }} {{ selectedAlmanac.weekdayText }}</text>
         <text class="hero-lunar">{{ selectedAlmanac.lunarText }}</text>
         <text v-if="selectedAlmanac.festivalText" class="hero-festival">{{ selectedAlmanac.festivalText }}</text>
+        <view v-if="activeLuckyMark" class="hero-lucky">
+          <text class="hero-lucky-emoji">{{ activeLuckyMark.emoji }}</text>
+          <text class="hero-lucky-label">{{ activeLuckyMark.label }}</text>
+        </view>
       </view>
 
       <!-- 时令信息 -->
@@ -708,12 +779,6 @@ function openBazi(): void {
         </view>
       </view>
 
-      <!-- 今日感悟 -->
-      <view v-if="moonPhase || periodData || seasonSpecial" class="panel insight-panel">
-        <text class="insight-label">今日一悟</text>
-        <text class="insight-text">{{ moonPhase?.insight || periodData?.insight || seasonSpecial?.data.insight }}</text>
-      </view>
-
       <!-- 当前时辰 -->
       <view class="panel hour-panel">
         <view class="hour-header">
@@ -737,28 +802,26 @@ function openBazi(): void {
         <TimelineView v-else :hours="selectedAlmanac.hours" :selected-id="selectedHourId" @select="selectHour" />
       </view>
 
-      <!-- 底部入口 -->
-      <view class="entry-grid">
-        <view class="entry-card" @tap="openZodiac">
-          <text class="entry-icon">{{ zodiacSign ? zodiacSign.symbol : '♒' }}</text>
-          <text class="entry-label">星座运势</text>
-        </view>
-        <view class="entry-card" @tap="openLuckyDays">
-          <text class="entry-icon">📅</text>
-          <text class="entry-label">择吉日</text>
-        </view>
-        <view class="entry-card" @tap="openBazi">
-          <text class="entry-icon">🔮</text>
-          <text class="entry-label">个人八字</text>
+      <!-- 星座运势入口 -->
+      <view v-if="zodiacSign && zodiacFortunePreview" class="panel zodiac-entry-panel" @tap="openZodiac">
+        <view class="zodiac-entry-row">
+          <text class="zodiac-entry-icon">{{ zodiacSign.symbol }}</text>
+          <view class="zodiac-entry-copy">
+            <text class="zodiac-entry-name">{{ zodiacSign.name }}</text>
+            <text class="zodiac-entry-hint">综合运势 {{ zodiacFortunePreview.score }}%</text>
+          </view>
+          <text class="zodiac-entry-arrow">›</text>
         </view>
       </view>
     </view>
+
+    <CustomTabBar :active="2" />
   </view>
 </template>
 
 <style scoped>
 .home-page {
-  padding-bottom: 56rpx;
+  padding-bottom: 180rpx;
   padding-left: 18rpx;
   padding-right: 18rpx;
 }
@@ -773,6 +836,7 @@ function openBazi(): void {
   background: rgba(36, 31, 24, 0);
   opacity: 0;
   pointer-events: none;
+  visibility: hidden;
   transition: opacity 180ms ease, background-color 180ms ease;
 }
 
@@ -780,20 +844,26 @@ function openBazi(): void {
   background: rgba(36, 31, 24, 0.24);
   opacity: 1;
   pointer-events: auto;
+  visibility: visible;
 }
 
 .side-menu {
-  position: absolute;
+  position: fixed;
   top: 0;
-  bottom: 0;
   left: 0;
+  bottom: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  width: 470rpx;
+  width: 520rpx;
+  max-width: calc(100vw - 48rpx);
+  height: 100vh;
   padding: 76rpx 28rpx 36rpx;
   border-right: 1rpx solid rgba(223, 210, 191, 0.9);
-  background: rgba(255, 250, 240, 0.98);
+  background: var(--gs-panel);
   box-shadow: 18rpx 0 42rpx rgba(67, 47, 25, 0.16);
+  overflow-x: hidden;
+  overflow-y: auto;
   transform: translateX(-100%);
   transition: transform 220ms ease;
 }
@@ -805,8 +875,8 @@ function openBazi(): void {
 .side-menu-head {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 20rpx;
+  padding-bottom: 20rpx;
 }
 
 .side-date {
@@ -829,28 +899,87 @@ function openBazi(): void {
   line-height: 1.2;
 }
 
-.settings-button {
+.side-menu-section {
+  margin-top: 8rpx;
+}
+
+.side-menu-section-title {
+  display: block;
+  margin-bottom: 14rpx;
+  color: var(--gs-muted);
+  font-size: 22rpx;
+  font-weight: 800;
+  letter-spacing: 2rpx;
+}
+
+.side-menu-divider {
+  height: 1rpx;
+  margin: 22rpx 0;
+  background: var(--gs-line);
+}
+
+.side-menu-item {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 58rpx;
-  height: 58rpx;
-  border: 1rpx solid var(--gs-line);
-  border-radius: 50%;
-  color: var(--gs-blue);
-  background: rgba(255, 250, 240, 0.72);
+  justify-content: flex-start;
+  gap: 16rpx;
+  width: 100%;
+  height: 88rpx;
+  min-height: 88rpx;
+  padding: 0 16rpx;
+  border: none;
+  border-radius: 14rpx;
+  color: var(--gs-ink);
+  background: transparent;
   font-size: 28rpx;
   line-height: 1;
+  text-align: left;
+}
+
+.side-menu-item + .side-menu-item {
+  margin-top: 8rpx;
+}
+
+.side-menu-item-icon {
+  flex: 0 0 44rpx;
+  font-size: 34rpx;
+  line-height: 1;
+  text-align: center;
+}
+
+.side-menu-item-copy {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4rpx;
+  min-width: 0;
+}
+
+.side-menu-item-label {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 800;
+  line-height: 1.18;
+  color: var(--gs-ink);
+}
+
+.side-menu-item-hint {
+  display: block;
+  font-size: 20rpx;
+  line-height: 1.2;
+  color: var(--gs-muted);
 }
 
 .calendar-view-list {
   display: flex;
   flex-direction: column;
   gap: 14rpx;
-  margin-top: 44rpx;
 }
 
 .calendar-view-button {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -863,6 +992,7 @@ function openBazi(): void {
   background: rgba(247, 241, 231, 0.72);
   font-size: 28rpx;
   font-weight: 800;
+  line-height: 1;
   text-align: left;
 }
 
@@ -1112,8 +1242,17 @@ function openBazi(): void {
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  gap: 4rpx;
   width: 100%;
   height: 54rpx;
+}
+
+.date-lucky-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  margin-bottom: 8rpx;
+  flex: 0 0 auto;
 }
 
 .date-number {
@@ -1203,6 +1342,28 @@ function openBazi(): void {
   margin-top: 12rpx;
   color: var(--gs-blue);
   font-size: 24rpx;
+}
+
+.hero-lucky {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-top: 14rpx;
+  padding: 8rpx 18rpx;
+  border: 1rpx solid rgba(199, 141, 42, 0.28);
+  border-radius: 999rpx;
+  background: rgba(199, 141, 42, 0.1);
+  align-self: flex-start;
+}
+
+.hero-lucky-emoji {
+  font-size: 24rpx;
+}
+
+.hero-lucky-label {
+  color: #6f4510;
+  font-size: 22rpx;
+  font-weight: 800;
 }
 
 /* 信息网格 */
@@ -1367,31 +1528,6 @@ function openBazi(): void {
   line-height: 1.5;
 }
 
-/* 今日感悟 */
-.insight-panel {
-  margin-bottom: 18rpx;
-  padding: 24rpx;
-}
-
-.insight-label {
-  display: block;
-  margin-bottom: 12rpx;
-  color: var(--gs-blue);
-  font-size: 22rpx;
-  font-weight: 800;
-}
-
-.insight-text {
-  display: block;
-  padding: 16rpx;
-  border-left: 4rpx solid var(--gs-gold);
-  color: var(--gs-ink);
-  background: rgba(199, 141, 42, 0.08);
-  font-size: 26rpx;
-  font-weight: 500;
-  line-height: 1.6;
-}
-
 /* 时辰面板 */
 .hour-panel {
   margin-bottom: 18rpx;
@@ -1418,11 +1554,18 @@ function openBazi(): void {
 }
 
 .hour-level {
-  padding: 4rpx 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52rpx;
+  height: 36rpx;
+  padding: 0;
   border-radius: 6rpx;
   color: #ffffff;
   font-size: 20rpx;
   font-weight: 800;
+  line-height: 1;
+  text-align: center;
 }
 
 .hour-level-good {
@@ -1443,34 +1586,46 @@ function openBazi(): void {
   line-height: 1.6;
 }
 
-/* 入口网格 */
-.entry-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12rpx;
+/* 星座运势入口 */
+.zodiac-entry-panel {
   margin-top: 18rpx;
+  padding: 20rpx 24rpx;
+  cursor: pointer;
 }
 
-.entry-card {
+.zodiac-entry-row {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 12rpx;
-  padding: 28rpx 20rpx;
-  border: 1rpx solid var(--gs-line);
-  border-radius: 14rpx;
-  background: rgba(255, 250, 240, 0.72);
+  gap: 16rpx;
 }
 
-.entry-icon {
-  font-size: 48rpx;
+.zodiac-entry-icon {
+  font-size: 40rpx;
   line-height: 1;
 }
 
-.entry-label {
+.zodiac-entry-copy {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.zodiac-entry-name {
   color: var(--gs-ink);
-  font-size: 24rpx;
+  font-size: 28rpx;
   font-weight: 800;
+}
+
+.zodiac-entry-hint {
+  color: var(--gs-muted);
+  font-size: 22rpx;
+}
+
+.zodiac-entry-arrow {
+  color: var(--gs-blue);
+  font-size: 36rpx;
+  line-height: 1;
 }
 
 .time-panel {

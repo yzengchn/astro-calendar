@@ -35,6 +35,7 @@ export interface CalendarDay {
   isToday: boolean
   isSelected: boolean
   isCurrentMonth: boolean
+  luckyMarkColor?: string
 }
 
 export interface LunarDate {

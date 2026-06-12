@@ -8,20 +8,6 @@
       }
     },
     {
-      "path": "pages/day-detail/index",
-      "style": {
-        "navigationBarTitleText": "日辰",
-        "navigationStyle": "custom"
-      }
-    },
-    {
-      "path": "pages/zodiac/index",
-      "style": {
-        "navigationBarTitleText": "星座指引",
-        "navigationStyle": "custom"
-      }
-    },
-    {
       "path": "pages/lucky-days/index",
       "style": {
         "navigationBarTitleText": "择吉日",
@@ -29,13 +15,62 @@
       }
     },
     {
-      "path": "pages/bazi/index",
+      "path": "pages/blessing/index",
       "style": {
-        "navigationBarTitleText": "个人八字",
+        "navigationBarTitleText": "祈福",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/zodiac/index",
+      "style": {
+        "navigationBarTitleText": "八字·生肖",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/fortune/index",
+      "style": {
+        "navigationBarTitleText": "运势",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/day-detail/index",
+      "style": {
+        "navigationBarTitleText": "日辰",
         "navigationStyle": "custom"
       }
     }
   ],
+  "tabBar": {
+    "custom": true,
+    "color": "#786d60",
+    "selectedColor": "#315d76",
+    "backgroundColor": "#fffaf0",
+    "list": [
+      {
+        "pagePath": "pages/lucky-days/index",
+        "text": "择日"
+      },
+      {
+        "pagePath": "pages/blessing/index",
+        "text": "祈福"
+      },
+      {
+        "pagePath": "pages/home/index",
+        "text": "日历"
+      },
+      {
+        "pagePath": "pages/zodiac/index",
+        "text": "八字"
+      },
+      {
+        "pagePath": "pages/fortune/index",
+        "text": "运势"
+      }
+    ]
+  },
   "globalStyle": {
     "navigationBarTextStyle": "black",
     "navigationBarTitleText": "星运日历",

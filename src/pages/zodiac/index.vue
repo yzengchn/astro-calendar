@@ -1,762 +1,901 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
-import type { ZodiacFortuneCache, ZodiacFortuneResult, ZodiacId } from '@/types/zodiac'
-import type { DateKey } from '@/types/calendar'
-import { getTodayKey, isDateKey } from '@/services/calendar'
+import { computed, onMounted, ref } from 'vue'
+import CustomTabBar from '@/components/CustomTabBar.vue'
 import {
-  createZodiacFortuneCache,
-  fetchZodiacFortune,
-  getZodiacByBirthday,
-  getZodiacById,
-  getZodiacCacheKey,
-  isZodiacFortuneCache,
-  resolveZodiacFortune,
-  ZODIAC_SIGNS
-} from '@/services/zodiac'
-import { getNetworkType, getStorage, setStorage, showToast, trackEvent } from '@/services/platform'
+  calculateBazi,
+  clearBaziInfo,
+  getBaziInfo,
+  saveBaziInfo,
+  getBaziAnalysis,
+  getDaYunList,
+  getChineseZodiacAnimal,
+  CHINESE_ZODIAC_ANIMALS,
+  getWuXingColor,
+  type BaziInfo,
+  type BaziAnalysis,
+  type DaYunItem,
+  type PillarDetail
+} from '@/services/bazi'
+import { lightHaptic, showToast, trackEvent } from '@/services/platform'
 
-interface FortuneDetailItem {
-  id: string
-  title: string
-  copy: string
-  score: number
-}
-
-interface LuckyItem {
-  label: string
-  value: string
-}
-
-const dateKey = ref<DateKey>(getTodayKey())
-const todayDateValue = getTodayKey()
-const selectedZodiacId = ref<string | null>(getStorage('user_zodiac_sign', null))
-const birthday = ref(getStorage('user_birthday', ''))
-const isChoosing = ref(!selectedZodiacId.value)
-const isOffline = ref(false)
-const isLoading = ref(false)
-const errorText = ref('')
-const fortuneState = ref<ZodiacFortuneResult | null>(null)
-
-const selectedSign = computed(() => getZodiacById(selectedZodiacId.value))
-const fortune = computed(() => fortuneState.value?.fortune || null)
-const pageTitle = computed(() => (selectedSign.value ? `${selectedSign.value.name}运势` : '选择你的星座'))
-const birthdayPickerValue = computed(() => birthday.value || '2000-01-01')
-const birthdayText = computed(() => (birthday.value ? birthday.value : '用生日自动匹配星座'))
-const dateText = computed(() => {
-  if (!fortune.value) return dateKey.value
-  return fortune.value.dateKey === getTodayKey() ? '今日' : fortune.value.dateKey
-})
-const cacheStatusText = computed(() => {
-  if (!fortuneState.value) return ''
-  if (fortuneState.value.source === 'fallback') return isOffline.value ? '离线本地内容' : '本地兜底内容'
-  if (fortuneState.value.source === 'stale-cache') {
-    return fortuneState.value.isDateMismatch ? `${fortuneState.value.fortune.dateKey} 缓存内容` : '缓存已过期'
-  }
-  if (isOffline.value && fortuneState.value.source === 'fresh') return '离线本地内容'
-  if (fortuneState.value.source === 'cache') return `缓存至 ${formatTime(fortuneState.value.expiresAt)}`
-  return `已更新 ${formatTime(fortuneState.value.cachedAt)}`
-})
-const cacheStatusClass = computed(() => {
-  if (!fortuneState.value) return ''
-  if (fortuneState.value.source === 'stale-cache' || fortuneState.value.source === 'fallback' || isOffline.value) return 'cache-pill-warn'
-  if (fortuneState.value.source === 'cache') return 'cache-pill-soft'
-  return 'cache-pill-fresh'
-})
-const fortuneDetails = computed<FortuneDetailItem[]>(() => {
-  if (!fortune.value) return []
-  return [
-    { id: 'love', title: '爱情运', copy: fortune.value.love, score: clampScore(fortune.value.loveScore) },
-    { id: 'career', title: '事业运', copy: fortune.value.career, score: clampScore(fortune.value.careerScore) },
-    { id: 'wealth', title: '财富运', copy: fortune.value.wealth, score: clampScore(fortune.value.wealthScore) },
-    { id: 'social', title: '社交运', copy: fortune.value.social, score: clampScore(fortune.value.socialScore) },
-    { id: 'health', title: '健康运', copy: fortune.value.health, score: clampScore(fortune.value.healthScore) }
-  ]
-})
-const luckyItems = computed<LuckyItem[]>(() => {
-  if (!fortune.value) return []
-  return [
-    { label: '幸运色', value: fortune.value.luckyColor },
-    { label: '幸运数', value: String(fortune.value.luckyNumber) },
-    { label: '方位', value: fortune.value.luckyDirection },
-    { label: '时段', value: fortune.value.bestTime }
-  ]
-})
-
-onLoad((query) => {
-  if (query?.date && typeof query.date === 'string' && isDateKey(query.date)) {
-    dateKey.value = query.date
-  }
-  if (selectedZodiacId.value) {
-    void loadFortune()
-    trackEvent('zodiac_page_view', {
-      zodiac_sign: selectedZodiacId.value
-    })
-  }
-})
-
-function goBack(): void {
-  uni.navigateBack()
-}
-
-function selectZodiac(id: ZodiacId): void {
-  selectedZodiacId.value = id
-  isChoosing.value = false
-  setStorage('user_zodiac_sign', id)
-  setStorage('zodiac_last_view_date', dateKey.value)
-  void loadFortune({ forceRefresh: true })
-  trackEvent('zodiac_sign_select', {
-    selected_zodiac: id
-  })
-  trackEvent('zodiac_page_view', {
-    zodiac_sign: id
-  })
-}
-
-function toggleChooser(): void {
-  isChoosing.value = true
-}
-
-async function refreshFortune(): Promise<void> {
-  await loadFortune({ forceRefresh: true })
-  const source = fortuneState.value?.source
-  if (source === 'fresh') {
-    showToast('已更新运势')
-  } else if (source === 'fallback') {
-    showToast(isOffline.value ? '当前离线，已显示本地内容' : '后端暂不可用，已显示本地内容')
-  } else {
-    showToast('已显示缓存运势')
-  }
-  trackEvent('zodiac_cache_refresh', {
-    zodiac_sign: selectedZodiacId.value,
-    source
-  })
-}
-
-async function loadFortune(options: { forceRefresh?: boolean } = {}): Promise<void> {
-  if (!selectedZodiacId.value) return
-  isLoading.value = true
-  errorText.value = ''
-
-  try {
-    const networkType = await getNetworkType()
-    isOffline.value = networkType === 'none'
-    const cache = readFortuneCache(selectedZodiacId.value)
-
-    if (!options.forceRefresh) {
-      const cachedState = resolveZodiacFortune(selectedZodiacId.value, dateKey.value, cache)
-      if (cachedState.source === 'cache') {
-        fortuneState.value = cachedState
-        return
-      }
-    }
-
-    if (!isOffline.value) {
-      try {
-        const remoteFortune = await fetchZodiacFortune(selectedZodiacId.value, dateKey.value)
-        const now = Date.now()
-        const remoteCache = createZodiacFortuneCache(remoteFortune.sign.id, remoteFortune.dateKey, now, remoteFortune)
-        fortuneState.value = {
-          fortune: remoteFortune,
-          source: 'fresh',
-          cachedAt: remoteCache.cachedAt,
-          expiresAt: remoteCache.expiresAt,
-          isExpired: false,
-          isDateMismatch: false,
-          cache: remoteCache
-        }
-        setStorage(getZodiacCacheKey(remoteCache.signId), remoteCache)
-        return
-      } catch (error) {
-        errorText.value = '后端暂不可用，展示本地兜底运势'
-        if (import.meta.env.DEV) {
-          console.warn('[zodiac:fetch]', error)
-        }
-      }
-    }
-
-    const localState = resolveZodiacFortune(selectedZodiacId.value, dateKey.value, cache, {
-      preferCache: true
-    })
-    const state: ZodiacFortuneResult =
-      localState.source === 'fresh'
-        ? {
-            ...localState,
-            source: 'fallback'
-          }
-        : localState
-    fortuneState.value = state
-    if (state.source === 'fallback') {
-      errorText.value = isOffline.value ? '当前离线，展示本地兜底运势' : errorText.value
-    }
-    if (state.cache) {
-      setStorage(getZodiacCacheKey(state.cache.signId), state.cache)
-    }
-  } finally {
-    isLoading.value = false
+type PickerChangeEvent = {
+  detail: {
+    value: string | number
   }
 }
 
-function readFortuneCache(signId: string): ZodiacFortuneCache | null {
-  const value = getStorage<unknown>(getZodiacCacheKey(signId), null)
-  return isZodiacFortuneCache(value) ? value : null
+const hasBazi = ref(false)
+const baziInfo = ref<BaziInfo | null>(null)
+const analysis = ref<BaziAnalysis | null>(null)
+const daYunList = ref<DaYunItem[]>([])
+const showDaYun = ref(false)
+
+const formDate = ref('')
+const formHour = ref(12)
+const formGender = ref<'male' | 'female'>('male')
+
+const hours = Array.from({ length: 24 }, (_, i) => ({ value: i, label: `${i}:00` }))
+
+const zodiacAnimal = computed(() => {
+  if (!baziInfo.value) return undefined
+  return getChineseZodiacAnimal(baziInfo.value.zodiac)
+})
+
+const pillarKeys = ['year', 'month', 'day', 'hour'] as const
+const pillarLabels = ['年柱', '月柱', '日柱', '时柱']
+
+function getPillar(key: typeof pillarKeys[number]): PillarDetail | undefined {
+  if (!analysis.value) return undefined
+  return analysis.value.pillars[key]
 }
 
-function formatTime(timestamp: number): string {
-  const date = new Date(timestamp)
-  const hour = String(date.getHours()).padStart(2, '0')
-  const minute = String(date.getMinutes()).padStart(2, '0')
-  return `${hour}:${minute}`
+function getPillarMeta(key: typeof pillarKeys[number]): { label: string; sub: string } {
+  if (!baziInfo.value) return { label: '', sub: '' }
+  if (key === 'year') return { label: '年柱', sub: `${baziInfo.value.zodiac}年` }
+  if (key === 'day') return { label: '日柱', sub: '日元' }
+  if (key === 'month') return { label: '月柱', sub: '' }
+  return { label: '时柱', sub: '' }
 }
 
-function clampScore(score: number): number {
-  return Math.max(0, Math.min(100, Math.round(score)))
+const currentDaYun = computed(() => daYunList.value.find(d => d.isCurrent))
+
+onMounted(() => {
+  loadBazi()
+  trackEvent('bazi_page_view')
+})
+
+function loadBazi() {
+  const saved = getBaziInfo()
+  if (saved) {
+    baziInfo.value = saved
+    hasBazi.value = true
+    refreshAnalysis()
+  }
 }
 
-function onBirthdayChange(event: { detail?: { value?: string } }): void {
-  const value = event.detail?.value
-  if (!value) return
+function refreshAnalysis() {
+  if (!baziInfo.value) return
+  analysis.value = getBaziAnalysis(baziInfo.value)
+  daYunList.value = getDaYunList(baziInfo.value).filter(d => d.startAge > 0)
+}
 
-  birthday.value = value
-  setStorage('user_birthday', value)
-  const sign = getZodiacByBirthday(value)
-  if (!sign) {
-    showToast('生日日期无效')
+function handleSave() {
+  if (!formDate.value) {
+    showToast('请选择出生日期')
     return
   }
 
-  selectZodiac(sign.id)
-  showToast(`已匹配${sign.name}`)
-  trackEvent('zodiac_birthday_set', {
-    zodiac_sign: sign.id
+  const bazi = calculateBazi(formDate.value, formHour.value, formGender.value, '')
+  saveBaziInfo(bazi)
+  baziInfo.value = bazi
+  hasBazi.value = true
+  refreshAnalysis()
+  lightHaptic()
+  showToast('推算完成')
+  trackEvent('bazi_save', { zodiac: bazi.zodiac })
+}
+
+function handleEdit() {
+  formDate.value = baziInfo.value?.birthDate || ''
+  formHour.value = baziInfo.value?.birthTime || 12
+  formGender.value = baziInfo.value?.gender || 'male'
+  hasBazi.value = false
+}
+
+function handleDelete() {
+  uni.showModal({
+    title: '提示',
+    content: '确定要删除八字信息吗？',
+    success: (res) => {
+      if (res.confirm) {
+        clearBaziInfo()
+        baziInfo.value = null
+        analysis.value = null
+        daYunList.value = []
+        hasBazi.value = false
+        lightHaptic()
+        showToast('已删除')
+      }
+    }
   })
+}
+
+function toggleDaYun() {
+  lightHaptic()
+  showDaYun.value = !showDaYun.value
+}
+
+function handleDateChange(event: PickerChangeEvent) {
+  formDate.value = String(event.detail.value)
+}
+
+function handleHourChange(event: PickerChangeEvent) {
+  const hour = Number(event.detail.value)
+  formHour.value = Number.isFinite(hour) ? hour : 12
 }
 </script>
 
 <template>
-  <view class="safe-page zodiac-page">
+  <view class="safe-page bazi-page">
     <view class="topbar">
-      <button class="icon-button" aria-label="返回" @tap="goBack">‹</button>
-      <view class="zodiac-nav-title">
-        <text>{{ pageTitle }}</text>
+      <view class="topbar-title">
+        <text class="topbar-title-main">八字·生肖</text>
+        <text class="topbar-title-sub">本命格局与生肖特质</text>
       </view>
-      <button class="icon-button" aria-label="切换星座" @tap="toggleChooser">☉</button>
     </view>
 
-    <view v-if="isChoosing" class="sign-grid">
-      <picker
-        class="birthday-picker sign-picker"
-        mode="date"
-        :value="birthdayPickerValue"
-        start="1900-01-01"
-        :end="todayDateValue"
-        @change="onBirthdayChange"
-      >
-        <view class="panel birthday-picker-inner">
-          <view>
-            <text class="birthday-picker-label">生日匹配</text>
-            <text class="birthday-picker-value">{{ birthdayText }}</text>
+    <!-- 已有八字：展示命盘 + 生肖 -->
+    <view v-if="hasBazi && baziInfo" class="bazi-content">
+      <!-- 生肖卡片 -->
+      <view v-if="zodiacAnimal" class="panel animal-card">
+        <view class="animal-header">
+          <text class="animal-symbol">{{ zodiacAnimal.symbol }}</text>
+          <view class="animal-info">
+            <text class="animal-name">{{ zodiacAnimal.name }}</text>
+            <text class="animal-trait">{{ zodiacAnimal.trait }}</text>
           </view>
-          <text class="birthday-picker-arrow">›</text>
+          <view class="animal-element">
+            <text class="animal-element-label">五行</text>
+            <text class="animal-element-value" :style="{ color: getWuXingColor(zodiacAnimal.element) }">{{ zodiacAnimal.element }}</text>
+          </view>
         </view>
-      </picker>
+        <text class="animal-desc">{{ zodiacAnimal.description }}</text>
+        <view class="animal-lucky">
+          <view class="lucky-item">
+            <text class="lucky-label">幸运数</text>
+            <text class="lucky-value">{{ zodiacAnimal.luckyNumbers }}</text>
+          </view>
+          <view class="lucky-item">
+            <text class="lucky-label">幸运色</text>
+            <text class="lucky-value">{{ zodiacAnimal.luckyColors }}</text>
+          </view>
+          <view class="lucky-item">
+            <text class="lucky-label">幸运花</text>
+            <text class="lucky-value">{{ zodiacAnimal.luckyFlowers }}</text>
+          </view>
+        </view>
+      </view>
 
-      <button v-for="sign in ZODIAC_SIGNS" :key="sign.id" class="panel sign-cell" @tap="selectZodiac(sign.id)">
-        <text class="sign-symbol">{{ sign.symbol }}</text>
-        <text class="sign-name">{{ sign.name.replace('座', '') }}</text>
-        <text class="sign-range">{{ sign.range }}</text>
-      </button>
+      <!-- 八字命盘 -->
+      <view class="section-title">
+        <text>八字命盘</text>
+      </view>
+      <view class="panel pillar-card">
+        <view class="pillar-row">
+          <view v-for="key in pillarKeys" :key="key" class="pillar">
+            <text class="pillar-label">{{ getPillarMeta(key).label }}</text>
+            <text class="pillar-gan">{{ getPillar(key)?.ganZhi.slice(0, 1) }}</text>
+            <text class="pillar-zhi">{{ getPillar(key)?.ganZhi.slice(1) }}</text>
+            <view class="pillar-wuxing" :style="{ borderColor: getWuXingColor(getPillar(key)?.wuXing || '') }">
+              <text :style="{ color: getWuXingColor(getPillar(key)?.wuXing || '') }">{{ getPillar(key)?.wuXing }}</text>
+            </view>
+          </view>
+        </view>
+        <view class="pillar-meta">
+          <text class="pillar-meta-item">{{ baziInfo.birthDate }}</text>
+          <text class="pillar-meta-item">{{ baziInfo.birthTime }}:00</text>
+          <text class="pillar-meta-item">{{ baziInfo.gender === 'male' ? '乾造' : '坤造' }}</text>
+        </view>
+      </view>
+
+      <!-- 命盘详情 -->
+      <view v-if="analysis" class="section-title">
+        <text>命盘详解</text>
+      </view>
+      <view v-if="analysis" class="panel detail-card">
+        <!-- 纳音 -->
+        <view class="detail-row">
+          <text class="detail-label">纳音</text>
+          <text class="detail-value">{{ analysis.pillars.year.naYin }} · {{ analysis.pillars.month.naYin }} · {{ analysis.pillars.day.naYin }} · {{ analysis.pillars.hour.naYin }}</text>
+        </view>
+        <!-- 十神 -->
+        <view class="detail-row">
+          <text class="detail-label">十神</text>
+          <view class="detail-tags">
+            <text class="detail-tag" v-for="s in analysis.pillars.month.shiShenZhi" :key="s">{{ s }}</text>
+          </view>
+        </view>
+        <!-- 藏干 -->
+        <view class="detail-row">
+          <text class="detail-label">日支藏干</text>
+          <view class="detail-tags">
+            <text class="detail-tag" v-for="g in analysis.pillars.day.hideGan" :key="g">{{ g }}</text>
+          </view>
+        </view>
+        <!-- 命宫 身宫 -->
+        <view class="detail-row">
+          <text class="detail-label">命宫</text>
+          <text class="detail-value">{{ analysis.mingGong }}（{{ analysis.mingGongNaYin }}）</text>
+        </view>
+        <view class="detail-row">
+          <text class="detail-label">身宫</text>
+          <text class="detail-value">{{ analysis.shenGong }}（{{ analysis.shenGongNaYin }}）</text>
+        </view>
+        <!-- 胎元 胎息 -->
+        <view class="detail-row">
+          <text class="detail-label">胎元</text>
+          <text class="detail-value">{{ analysis.taiYuan }}（{{ analysis.taiYuanNaYin }}）</text>
+        </view>
+        <view class="detail-row">
+          <text class="detail-label">胎息</text>
+          <text class="detail-value">{{ analysis.taiXi }}（{{ analysis.taiXiNaYin }}）</text>
+        </view>
+        <!-- 冲煞 -->
+        <view class="detail-row">
+          <text class="detail-label">冲煞</text>
+          <text class="detail-value detail-clash">冲{{ analysis.chongShengXiao }}（{{ analysis.chong }}）煞{{ analysis.sha }}</text>
+        </view>
+        <!-- 彭祖 -->
+        <view class="detail-row">
+          <text class="detail-label">彭祖</text>
+          <text class="detail-value">{{ analysis.pengZuGan }}；{{ analysis.pengZuZhi }}</text>
+        </view>
+        <!-- 吉神 -->
+        <view v-if="analysis.jiShen.length" class="detail-row">
+          <text class="detail-label">吉神</text>
+          <view class="detail-tags">
+            <text class="detail-tag tag-good" v-for="s in analysis.jiShen.slice(0, 5)" :key="s">{{ s }}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 大运 -->
+      <view v-if="daYunList.length" class="section-title">
+        <text>大运</text>
+        <view class="dayun-toggle" @tap="toggleDaYun">
+          <text>{{ showDaYun ? '收起' : '展开' }}</text>
+          <text class="dayun-toggle-arrow" :class="{ open: showDaYun }">›</text>
+        </view>
+      </view>
+      <!-- 当前大运摘要 -->
+      <view v-if="currentDaYun && !showDaYun" class="panel dayun-current">
+        <view class="dayun-current-row">
+          <text class="dayun-current-gz">{{ currentDaYun.ganZhi }}</text>
+          <text class="dayun-current-age">{{ currentDaYun.startAge }}-{{ currentDaYun.endAge }}岁</text>
+          <text class="dayun-current-yr">{{ currentDaYun.startYear }}-{{ currentDaYun.endYear }}年</text>
+        </view>
+      </view>
+      <!-- 大运列表 -->
+      <view v-if="showDaYun" class="panel dayun-card">
+        <view
+          v-for="dy in daYunList"
+          :key="dy.startAge"
+          class="dayun-row"
+          :class="{ current: dy.isCurrent }"
+        >
+          <text class="dayun-gz" :class="{ 'dayun-gz-current': dy.isCurrent }">{{ dy.ganZhi }}</text>
+          <text class="dayun-age">{{ dy.startAge }}-{{ dy.endAge }}岁</text>
+          <text class="dayun-yr">{{ dy.startYear }}-{{ dy.endYear }}</text>
+        </view>
+      </view>
+
+      <!-- 操作按钮 -->
+      <view class="actions">
+        <view class="btn btn-secondary" @tap="handleEdit"><text>修改信息</text></view>
+        <view class="btn btn-danger" @tap="handleDelete"><text>删除</text></view>
+      </view>
     </view>
 
-    <view v-else-if="fortune" class="fortune-wrap">
-      <view class="fortune-hero">
-        <view class="fortune-symbol-wrap">
-          <text class="fortune-symbol">{{ fortune.sign.symbol }}</text>
+    <!-- 未设置八字：输入表单 -->
+    <view v-else class="bazi-form">
+      <view class="panel form-card">
+        <!-- 日期行 -->
+        <view class="form-row">
+          <text class="form-row-label">出生日期</text>
+          <picker mode="date" :value="formDate" start="1900-01-01" end="2030-12-31" @change="handleDateChange">
+            <view class="form-row-value">
+              <text v-if="formDate">{{ formDate }}</text>
+              <text v-else class="placeholder">请选择</text>
+              <text class="form-row-arrow">›</text>
+            </view>
+          </picker>
         </view>
-        <text class="fortune-date">{{ dateText }}</text>
-        <text class="fortune-name">{{ fortune.sign.name }}</text>
-        <text class="fortune-range">{{ fortune.sign.range }}</text>
-        <view class="keyword-chip">
-          <text>关键词</text>
-          <text>{{ fortune.keyword }}</text>
+
+        <!-- 时辰行 -->
+        <view class="form-row">
+          <text class="form-row-label">出生时辰</text>
+          <picker mode="selector" :range="hours" range-key="label" :value="formHour" @change="handleHourChange">
+            <view class="form-row-value">
+              <text>{{ formHour }}:00</text>
+              <text class="form-row-arrow">›</text>
+            </view>
+          </picker>
         </view>
-      </view>
 
-      <view class="fortune-meta">
-        <text class="cache-pill" :class="cacheStatusClass">{{ isLoading ? '更新中...' : cacheStatusText }}</text>
-        <button class="refresh-button" @tap="refreshFortune">刷新</button>
-      </view>
-
-      <view v-if="errorText" class="error-banner">
-        <text>{{ errorText }}</text>
-      </view>
-
-      <view class="panel score-panel">
-        <view>
-          <text class="score-label">综合运势</text>
-          <text class="score-stars">{{ fortune.stars }}</text>
-        </view>
-        <text class="score-number">{{ fortune.score }}%</text>
-      </view>
-
-      <view class="panel summary-panel">
-        <text class="summary-title">今日核心提示</text>
-        <text class="summary-copy">{{ fortune.summary }}</text>
-      </view>
-
-      <view class="fortune-list">
-        <view v-for="item in fortuneDetails" :key="item.id" class="fortune-item">
-          <view class="fortune-item-head">
-            <text class="fortune-item-title">{{ item.title }}</text>
-            <text class="fortune-item-score">{{ item.score }}%</text>
+        <!-- 性别行 -->
+        <view class="form-row">
+          <text class="form-row-label">性别</text>
+          <view class="gender-tags">
+            <view
+              class="gender-tag"
+              :class="{ active: formGender === 'male' }"
+              @tap="formGender = 'male'"
+            >
+              <text>♂ 男</text>
+            </view>
+            <view
+              class="gender-tag"
+              :class="{ active: formGender === 'female' }"
+              @tap="formGender = 'female'"
+            >
+              <text>♀ 女</text>
+            </view>
           </view>
-          <view class="fortune-meter">
-            <view class="fortune-meter-fill" :style="{ width: `${item.score}%` }"></view>
-          </view>
-          <text class="fortune-item-copy">{{ item.copy }}</text>
         </view>
       </view>
 
-      <view class="panel lucky-panel">
-        <view v-for="item in luckyItems" :key="item.label" class="lucky-item">
-          <text class="lucky-label">{{ item.label }}</text>
-          <text class="lucky-value">{{ item.value }}</text>
-        </view>
+      <!-- 推算按钮 -->
+      <view class="submit-bar">
+        <view class="submit-btn" @tap="handleSave"><text>推算八字</text></view>
       </view>
 
-      <view class="panel caution-panel">
-        <text class="caution-label">今日提醒</text>
-        <text class="caution-copy">{{ fortune.caution }}</text>
+      <!-- 十二生肖概览 -->
+      <view class="section-title">
+        <text>十二生肖</text>
       </view>
-
-      <picker
-        class="birthday-picker"
-        mode="date"
-        :value="birthdayPickerValue"
-        start="1900-01-01"
-        :end="todayDateValue"
-        @change="onBirthdayChange"
-      >
-        <view class="panel birthday-picker-inner">
-          <view>
-            <text class="birthday-picker-label">生日匹配</text>
-            <text class="birthday-picker-value">{{ birthdayText }}</text>
-          </view>
-          <text class="birthday-picker-arrow">›</text>
+      <view class="zodiac-grid">
+        <view v-for="animal in CHINESE_ZODIAC_ANIMALS" :key="animal.id" class="panel zodiac-cell">
+          <text class="zodiac-symbol">{{ animal.symbol }}</text>
+          <text class="zodiac-name">{{ animal.name }}</text>
+          <text class="zodiac-trait">{{ animal.trait }}</text>
         </view>
-      </picker>
+      </view>
     </view>
 
-    <view v-else class="panel loading-panel">
-      <text class="loading-title">{{ isLoading ? '正在加载运势' : '暂未获取运势' }}</text>
-      <text v-if="errorText" class="loading-copy">{{ errorText }}</text>
-    </view>
+    <CustomTabBar :active="3" />
   </view>
 </template>
 
 <style scoped>
-.zodiac-page {
-  padding-bottom: 64rpx;
+.bazi-page {
+  padding-bottom: 180rpx;
 }
 
-.zodiac-nav-title {
-  flex: 1;
-  padding: 0 18rpx;
-  color: var(--gs-ink);
-  font-size: 28rpx;
-  font-weight: 800;
-  text-align: center;
-}
-
-.sign-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16rpx;
-  padding-top: 18rpx;
-}
-
-.sign-picker {
-  grid-column: 1 / -1;
-}
-
-.sign-cell {
+.topbar-title {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 188rpx;
-  padding: 18rpx 10rpx;
+  gap: 6rpx;
+}
+
+.topbar-title-main {
   color: var(--gs-ink);
-}
-
-.sign-symbol,
-.sign-name,
-.sign-range {
-  display: block;
-}
-
-.sign-symbol {
-  color: var(--gs-gold);
-  font-size: 48rpx;
-  line-height: 1;
-}
-
-.sign-name {
-  margin-top: 12rpx;
-  font-size: 28rpx;
-  font-weight: 800;
-}
-
-.sign-range {
-  margin-top: 8rpx;
-  color: var(--gs-muted);
-  font-size: 18rpx;
-  line-height: 1.25;
-  text-align: center;
-}
-
-.fortune-wrap {
-  padding-top: 10rpx;
-}
-
-.fortune-hero {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 16rpx 0 28rpx;
-}
-
-.fortune-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18rpx;
-  margin-bottom: 18rpx;
-}
-
-.cache-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 48rpx;
-  padding: 0 18rpx;
-  border-radius: 999rpx;
-  font-size: 22rpx;
-  line-height: 48rpx;
-}
-
-.cache-pill-fresh {
-  color: #315d76;
-  background: rgba(49, 93, 118, 0.12);
-}
-
-.cache-pill-soft {
-  color: #6f4510;
-  background: rgba(199, 141, 42, 0.14);
-}
-
-.cache-pill-warn {
-  color: #8f2e28;
-  background: rgba(184, 74, 63, 0.12);
-}
-
-.refresh-button {
-  flex: 0 0 auto;
-  min-width: 112rpx;
-  min-height: 52rpx;
-  padding: 0 22rpx;
-  border: 1rpx solid var(--gs-line);
-  border-radius: 999rpx;
-  color: var(--gs-blue);
-  background: rgba(255, 250, 240, 0.82);
-  font-size: 22rpx;
-  line-height: 52rpx;
-}
-
-.fortune-symbol,
-.fortune-date,
-.fortune-name,
-.fortune-range {
-  display: block;
-}
-
-.fortune-symbol-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 128rpx;
-  height: 128rpx;
-  border: 1rpx solid rgba(199, 141, 42, 0.28);
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 38%, rgba(255, 250, 240, 0.95), rgba(245, 222, 182, 0.54)),
-    linear-gradient(180deg, rgba(199, 141, 42, 0.16), rgba(49, 93, 118, 0.06));
-}
-
-.fortune-symbol {
-  color: var(--gs-gold);
-  font-size: 78rpx;
-  line-height: 1;
-}
-
-.fortune-date {
-  margin-top: 16rpx;
-  color: var(--gs-muted);
-  font-size: 22rpx;
-  font-weight: 700;
-}
-
-.fortune-name {
-  margin-top: 8rpx;
-  color: var(--gs-ink);
-  font-size: 40rpx;
-  font-weight: 900;
-}
-
-.fortune-range {
-  margin-top: 8rpx;
-  color: var(--gs-muted);
-  font-size: 24rpx;
-}
-
-.keyword-chip {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  min-height: 50rpx;
-  margin-top: 18rpx;
-  padding: 0 20rpx;
-  border: 1rpx solid rgba(199, 141, 42, 0.28);
-  border-radius: 999rpx;
-  color: #6f4510;
-  background: rgba(245, 215, 110, 0.24);
-  font-size: 22rpx;
-  font-weight: 800;
-  line-height: 50rpx;
-}
-
-.error-banner {
-  margin-bottom: 18rpx;
-  padding: 18rpx 22rpx;
-  border: 1rpx solid rgba(184, 74, 63, 0.18);
-  border-radius: 14rpx;
-  color: #8f2e28;
-  background: rgba(184, 74, 63, 0.08);
-  font-size: 23rpx;
-  line-height: 1.45;
-}
-
-.score-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 28rpx;
-}
-
-.score-label,
-.score-stars,
-.score-number {
-  display: block;
-}
-
-.score-label {
-  color: var(--gs-muted);
-  font-size: 24rpx;
-}
-
-.score-stars {
-  margin-top: 8rpx;
-  color: var(--gs-gold);
   font-size: 34rpx;
-}
-
-.score-number {
-  color: var(--gs-blue);
-  font-size: 48rpx;
   font-weight: 900;
 }
 
-.summary-panel {
-  margin-top: 20rpx;
-  padding: 28rpx;
-}
-
-.summary-title,
-.summary-copy {
-  display: block;
-}
-
-.summary-title {
-  color: var(--gs-blue);
-  font-size: 26rpx;
-  font-weight: 800;
-}
-
-.summary-copy {
-  margin-top: 14rpx;
-  color: var(--gs-ink);
-  font-size: 28rpx;
-  line-height: 1.55;
-}
-
-.fortune-list {
-  margin-top: 28rpx;
-}
-
-.fortune-item {
-  padding: 24rpx 4rpx;
-  border-bottom: 1rpx solid var(--gs-line);
-}
-
-.fortune-item-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18rpx;
-}
-
-.fortune-item-title,
-.fortune-item-score,
-.fortune-item-copy {
-  display: block;
-}
-
-.fortune-item-title {
-  color: var(--gs-ink);
-  font-size: 28rpx;
-  font-weight: 800;
-}
-
-.fortune-item-score {
-  flex: 0 0 auto;
-  color: var(--gs-blue);
-  font-size: 24rpx;
-  font-weight: 900;
-}
-
-.fortune-meter {
-  height: 10rpx;
-  margin-top: 16rpx;
-  overflow: hidden;
-  border-radius: 999rpx;
-  background: rgba(223, 210, 191, 0.7);
-}
-
-.fortune-meter-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--gs-gold), var(--gs-blue));
-}
-
-.fortune-item-copy {
-  margin-top: 14rpx;
+.topbar-title-sub {
   color: var(--gs-muted);
-  font-size: 25rpx;
-  line-height: 1.5;
+  font-size: 22rpx;
 }
 
-.lucky-panel {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 18rpx 12rpx;
-  margin-top: 28rpx;
+/* Animal card */
+.animal-card {
   padding: 24rpx;
 }
 
-.lucky-item {
+.animal-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 16rpx;
+}
+
+.animal-symbol {
+  font-size: 60rpx;
+  line-height: 1;
+}
+
+.animal-info {
+  flex: 1;
   min-width: 0;
 }
 
-.lucky-label,
-.lucky-value,
-.caution-label,
-.caution-copy,
-.birthday-picker-label,
-.birthday-picker-value,
-.loading-title,
-.loading-copy {
+.animal-name {
   display: block;
-}
-
-.lucky-label {
-  color: var(--gs-muted);
-  font-size: 22rpx;
-}
-
-.lucky-value {
-  margin-top: 8rpx;
   color: var(--gs-ink);
-  font-size: 28rpx;
+  font-size: 32rpx;
   font-weight: 900;
-  line-height: 1.25;
 }
 
-.caution-panel {
-  margin-top: 20rpx;
-  padding: 24rpx;
-}
-
-.caution-label {
-  color: var(--gs-red);
+.animal-trait {
+  display: block;
+  margin-top: 4rpx;
+  color: var(--gs-gold);
   font-size: 24rpx;
+  font-weight: 800;
+}
+
+.animal-element {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10rpx 16rpx;
+  border: 1rpx solid rgba(199, 141, 42, 0.28);
+  border-radius: 14rpx;
+  background: rgba(245, 215, 110, 0.12);
+}
+
+.animal-element-label {
+  color: var(--gs-muted);
+  font-size: 18rpx;
+}
+
+.animal-element-value {
+  font-size: 26rpx;
   font-weight: 900;
 }
 
-.caution-copy {
-  margin-top: 10rpx;
+.animal-desc {
+  display: block;
   color: var(--gs-ink);
   font-size: 26rpx;
   line-height: 1.55;
+  margin-bottom: 16rpx;
 }
 
-.birthday-picker {
+.animal-lucky {
+  display: flex;
+  flex-direction: row;
+  gap: 8rpx;
+}
+
+.animal-lucky .lucky-item {
+  flex: 1;
+  padding: 12rpx 10rpx;
+  border-radius: 12rpx;
+  background: rgba(49, 93, 118, 0.06);
+}
+
+.animal-lucky .lucky-label {
   display: block;
-  margin-top: 26rpx;
+  color: var(--gs-muted);
+  font-size: 18rpx;
 }
 
-.birthday-picker-inner {
+.animal-lucky .lucky-value {
+  display: block;
+  margin-top: 4rpx;
+  color: var(--gs-ink);
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+/* Pillar card */
+.pillar-card {
+  padding: 24rpx 16rpx;
+}
+
+.pillar-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 4rpx;
+}
+
+.pillar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.pillar-label {
+  color: var(--gs-muted);
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+.pillar-gan {
+  color: var(--gs-ink);
+  font-size: 40rpx;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.pillar-zhi {
+  color: var(--gs-ink);
+  font-size: 40rpx;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.pillar-wuxing {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 24rpx 26rpx;
-  color: var(--gs-blue);
-  text-align: left;
+  justify-content: center;
+  padding: 2rpx 12rpx;
+  border: 1rpx solid var(--gs-line);
+  border-radius: 999rpx;
+  margin-top: 4rpx;
 }
 
-.birthday-picker-label {
+.pillar-wuxing text {
+  font-size: 18rpx;
+  font-weight: 800;
+}
+
+.pillar-meta {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  gap: 20rpx;
+  margin-top: 20rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid var(--gs-line);
+}
+
+.pillar-meta-item {
   color: var(--gs-muted);
   font-size: 22rpx;
   font-weight: 700;
 }
 
-.birthday-picker-value {
-  margin-top: 6rpx;
+/* Detail card */
+.detail-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.detail-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  padding: 18rpx 24rpx;
+  border-bottom: 1rpx solid var(--gs-line);
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-label {
+  flex: none;
+  width: 100rpx;
+  color: var(--gs-muted);
+  font-size: 22rpx;
+  font-weight: 700;
+  padding-top: 2rpx;
+}
+
+.detail-value {
+  flex: 1;
+  color: var(--gs-ink);
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.detail-clash {
+  color: var(--gs-red);
+}
+
+.detail-tags {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+
+.detail-tag {
+  padding: 4rpx 14rpx;
+  border: 1rpx solid var(--gs-line);
+  border-radius: 999rpx;
+  color: var(--gs-ink);
+  font-size: 20rpx;
+  font-weight: 700;
+  background: rgba(49, 93, 118, 0.04);
+}
+
+.detail-tag.tag-good {
+  border-color: rgba(199, 141, 42, 0.28);
+  color: var(--gs-gold);
+  background: rgba(199, 141, 42, 0.08);
+}
+
+/* DaYun */
+.dayun-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4rpx;
+}
+
+.dayun-toggle text:first-child {
   color: var(--gs-blue);
-  font-size: 27rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.dayun-toggle-arrow {
+  color: var(--gs-blue);
+  font-size: 22rpx;
+  line-height: 1;
+  transform: rotate(90deg);
+  transition: transform 200ms ease;
+}
+
+.dayun-toggle-arrow.open {
+  transform: rotate(270deg);
+}
+
+.dayun-current {
+  padding: 18rpx 24rpx;
+}
+
+.dayun-current-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.dayun-current-gz {
+  color: var(--gs-gold);
+  font-size: 32rpx;
   font-weight: 900;
 }
 
-.birthday-picker-arrow {
+.dayun-current-age {
+  color: var(--gs-ink);
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.dayun-current-yr {
+  color: var(--gs-muted);
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.dayun-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.dayun-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16rpx;
+  padding: 14rpx 24rpx;
+  border-bottom: 1rpx solid var(--gs-line);
+}
+
+.dayun-row:last-child {
+  border-bottom: none;
+}
+
+.dayun-row.current {
+  background: rgba(199, 141, 42, 0.06);
+}
+
+.dayun-gz {
+  color: var(--gs-muted);
+  font-size: 26rpx;
+  font-weight: 800;
+  width: 60rpx;
+}
+
+.dayun-gz-current {
+  color: var(--gs-gold);
+}
+
+.dayun-age {
+  color: var(--gs-ink);
+  font-size: 22rpx;
+  font-weight: 700;
+  flex: 1;
+}
+
+.dayun-yr {
+  color: var(--gs-muted);
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+/* Actions */
+.actions {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 12rpx;
+  margin-top: 20rpx;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12rpx 20rpx;
+  border-radius: 999rpx;
+  border: none;
+}
+
+.btn text {
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.btn-primary text {
+  color: #fff;
+}
+
+.btn-primary {
+  background: var(--gs-blue);
+}
+
+.btn-secondary text {
+  color: var(--gs-ink);
+}
+
+.btn-secondary {
+  background: rgba(223, 210, 191, 0.4);
+}
+
+.btn-danger text {
+  color: var(--gs-red);
+}
+
+.btn-danger {
+  background: rgba(184, 74, 63, 0.08);
+}
+
+/* Form */
+.form-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx 28rpx;
+  border-bottom: 1rpx solid var(--gs-line);
+}
+
+.form-row:last-child {
+  border-bottom: none;
+}
+
+.form-row-label {
+  color: var(--gs-muted);
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.form-row-value {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8rpx;
+  color: var(--gs-ink);
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.form-row-arrow {
+  color: var(--gs-muted);
+  font-size: 26rpx;
+  line-height: 1;
+}
+
+.placeholder {
+  color: var(--gs-muted);
+}
+
+/* Gender tags */
+.gender-tags {
+  display: flex;
+  flex-direction: row;
+  gap: 8rpx;
+}
+
+.gender-tag {
+  padding: 6rpx 20rpx;
+  border: 1rpx solid var(--gs-line);
+  border-radius: 999rpx;
+  background: transparent;
+}
+
+.gender-tag text {
+  color: var(--gs-muted);
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+.gender-tag.active {
+  border-color: var(--gs-blue);
+  background: rgba(49, 93, 118, 0.08);
+}
+
+.gender-tag.active text {
   color: var(--gs-blue);
+  font-weight: 800;
+}
+
+/* Submit bar */
+.submit-bar {
+  margin-top: 24rpx;
+}
+
+.submit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 22rpx 0;
+  border-radius: 16rpx;
+  background: var(--gs-blue);
+}
+
+.submit-btn text {
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 900;
+  letter-spacing: 2rpx;
+}
+
+/* Zodiac grid */
+.zodiac-grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.zodiac-cell {
+  width: calc(25% - 9rpx);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16rpx 8rpx;
+}
+
+.zodiac-symbol {
+  display: block;
   font-size: 36rpx;
   line-height: 1;
 }
 
-.loading-panel {
-  margin-top: 22rpx;
-  padding: 34rpx 28rpx;
-}
-
-.loading-title {
+.zodiac-name {
+  display: block;
+  margin-top: 6rpx;
   color: var(--gs-ink);
-  font-size: 30rpx;
-  font-weight: 900;
+  font-size: 22rpx;
+  font-weight: 800;
 }
 
-.loading-copy {
-  margin-top: 12rpx;
-  color: var(--gs-muted);
-  font-size: 24rpx;
-  line-height: 1.5;
+.zodiac-trait {
+  display: block;
+  margin-top: 4rpx;
+  color: var(--gs-gold);
+  font-size: 16rpx;
+  font-weight: 700;
 }
 </style>

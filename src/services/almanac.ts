@@ -1,5 +1,14 @@
 import { Lunar } from 'lunar-typescript'
-import type { DayAlmanac, HourAlmanac, ModernAdvice, StarMapping } from '@/types/almanac'
+import type {
+  AlmanacDefaultAdvice,
+  AlmanacMappingConfig,
+  AlmanacTermMapping,
+  DayAlmanac,
+  HourAlmanac,
+  ModernAdvice,
+  ModernScenarioMapping,
+  StarMapping
+} from '@/types/almanac'
 import type { DateKey, TimeBranch } from '@/types/calendar'
 import {
   formatDateKey,
@@ -12,12 +21,22 @@ import {
   TIME_BRANCHES
 } from './calendar'
 import { requestJson } from './api'
+import { getStorage, setStorage } from './platform'
 
 const HEAVENLY_STEMS = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']
 const EARTHLY_BRANCHES = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥']
 const ZODIACS = ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪']
+const ALMANAC_TERM_MAPPINGS_CACHE_KEY = 'almanac_term_mappings_v1'
 
-const STAR_MAPPINGS: StarMapping[] = [
+const DEFAULT_ADVICE: AlmanacDefaultAdvice = {
+  suitable: ['处理日常事务', '整理环境'],
+  avoid: ['过度计划', '追求完美'],
+  keyword: '顺其自然',
+  trait: '节奏平稳',
+  guide: '今日平平淡淡，顺其自然即可'
+}
+
+const DEFAULT_STAR_MAPPINGS: StarMapping[] = [
   {
     star: '天乙贵人',
     level: 'good',
@@ -152,11 +171,12 @@ const STAR_MAPPINGS: StarMapping[] = [
   }
 ]
 
-const MODERN_SCENARIOS = [
+const DEFAULT_MODERN_SCENARIOS: ModernScenarioMapping[] = [
   {
     traditional: ['嫁娶', '纳采', '订盟', '会亲友'],
     suitable: ['面试求职', '签署合同', '提交方案', '开启新项目'],
     avoid: ['拖延决策', '回避沟通', '独自硬扛'],
+    keyword: '积极主动',
     trait: '积极主动',
     summary: '今日宜开启新事物，主动出击会有好结果'
   },
@@ -164,6 +184,7 @@ const MODERN_SCENARIOS = [
     traditional: ['入学', '习艺', '求嗣', '祈福'],
     suitable: ['学习充电', '考试备考', '撰写文档', '策划方案'],
     avoid: ['分散注意力', '浅尝辄止', '死记硬背'],
+    keyword: '专注深入',
     trait: '专注深入',
     summary: '今日适合深度思考，学习效率高涨'
   },
@@ -171,6 +192,7 @@ const MODERN_SCENARIOS = [
     traditional: ['出行', '移徙', '纳财', '开市'],
     suitable: ['商务出差', '拜访客户', '团队协作', '社交聚会'],
     avoid: ['宅家不动', '拒绝邀约', '单打独斗'],
+    keyword: '人际顺畅',
     trait: '人际顺畅',
     summary: '今日人缘佳，外出社交会有意外收获'
   },
@@ -178,6 +200,7 @@ const MODERN_SCENARIOS = [
     traditional: ['纳财', '开仓', '栽种', '修造'],
     suitable: ['整理收纳', '复盘总结', '修正计划', '常规会议'],
     avoid: ['冲动决策', '仓促定案', '高风险投资'],
+    keyword: '稳扎稳打',
     trait: '稳扎稳打',
     summary: '今日宜守不宜攻，稳定推进即可'
   },
@@ -185,6 +208,7 @@ const MODERN_SCENARIOS = [
     traditional: ['嫁娶', '纳采', '会亲友', '祭祀'],
     suitable: ['表白告白', '修复关系', '坦诚沟通', '化解矛盾'],
     avoid: ['压抑情绪', '冷战逃避', '情绪争论'],
+    keyword: '情感通透',
     trait: '情感通透',
     summary: '今日感情运佳，真诚表达能打动人心'
   },
@@ -192,6 +216,7 @@ const MODERN_SCENARIOS = [
     traditional: ['出行', '沐浴', '剃头', '整手足甲'],
     suitable: ['运动健身', '户外活动', '突破舒适区', '勇敢尝试'],
     avoid: ['过度懒散', '畏首畏尾', '原地踏步'],
+    keyword: '活力充沛',
     trait: '活力充沛',
     summary: '今日精力旺盛，适合挑战和突破'
   },
@@ -199,6 +224,7 @@ const MODERN_SCENARIOS = [
     traditional: ['纳财', '开市', '立券', '交易'],
     suitable: ['理财规划', '预算审核', '整理账单', '确认资源'],
     avoid: ['冲动消费', '盲目投资', '模糊承诺'],
+    keyword: '理性务实',
     trait: '理性务实',
     summary: '今日适合做财务规划，理性分析助力决策'
   },
@@ -206,6 +232,7 @@ const MODERN_SCENARIOS = [
     traditional: ['裁衣', '作染', '雕刻', '造车器'],
     suitable: ['创意设计', '头脑风暴', '艺术创作', '灵感捕捉'],
     avoid: ['墨守成规', '自我设限', '过度计划'],
+    keyword: '灵感涌现',
     trait: '灵感涌现',
     summary: '今日创意爆棚，放飞想象力会有惊喜'
   },
@@ -213,6 +240,7 @@ const MODERN_SCENARIOS = [
     traditional: ['动土', '破土', '拆卸', '坏垣'],
     suitable: ['重构代码', '调整架构', '变革流程', '大胆改革'],
     avoid: ['维持现状', '抗拒改变', '畏惧风险'],
+    keyword: '破旧立新',
     trait: '破旧立新',
     summary: '今日宜突破创新，勇于打破陈规'
   },
@@ -220,6 +248,7 @@ const MODERN_SCENARIOS = [
     traditional: ['安葬', '启攒', '除服', '成服'],
     suitable: ['归档整理', '结束项目', '清理冗余', '放下过去'],
     avoid: ['拖泥带水', '不舍放手', '执念不放'],
+    keyword: '断舍离',
     trait: '断舍离',
     summary: '今日宜告别过往，轻装前行'
   },
@@ -227,6 +256,7 @@ const MODERN_SCENARIOS = [
     traditional: ['祭祀', '祈福', '求嗣', '酬神'],
     suitable: ['冥想放松', '感恩总结', '调整心态', '自我反思'],
     avoid: ['焦虑担忧', '负能量', '自怨自艾'],
+    keyword: '内心安宁',
     trait: '内心安宁',
     summary: '此时静心思考，内心更加平静'
   },
@@ -234,6 +264,7 @@ const MODERN_SCENARIOS = [
     traditional: ['立券', '交易', '纳财', '开市'],
     suitable: ['签署协议', '确定合作', '达成共识', '商务谈判'],
     avoid: ['模糊承诺', '口头约定', '忽略细节'],
+    keyword: '白纸黑字',
     trait: '白纸黑字',
     summary: '今日宜确认协议，避免口说无凭'
   },
@@ -241,6 +272,7 @@ const MODERN_SCENARIOS = [
     traditional: ['栽种', '牧养', '纳畜', '畋猎'],
     suitable: ['布局未来', '投资学习', '建立习惯', '培养关系'],
     avoid: ['短视近利', '急功近求', '不做准备'],
+    keyword: '长远布局',
     trait: '长远布局',
     summary: '今日宜着眼长远，为未来播种'
   },
@@ -248,6 +280,7 @@ const MODERN_SCENARIOS = [
     traditional: ['修造', '动土', '竖柱', '上梁'],
     suitable: ['优化改进', '修复Bug', '完善细节', '补齐文档'],
     avoid: ['粗制滥造', '敷衍了事', '忽略细节'],
+    keyword: '精益求精',
     trait: '精益求精',
     summary: '此时适合完善优化，提升质量'
   },
@@ -255,49 +288,97 @@ const MODERN_SCENARIOS = [
     traditional: ['移徙', '入宅', '安床', '解除'],
     suitable: ['换工作', '调整方向', '变换环境', '搬家迁居'],
     avoid: ['固守原地', '抗拒改变', '安于现状'],
+    keyword: '顺应变化',
     trait: '顺应变化',
     summary: '今日适合顺势而为，拥抱改变'
   }
 ]
 
-const DAILY_SUITABLE = MODERN_SCENARIOS.map(s => s.suitable.slice(0, 3))
-const DAILY_AVOID = MODERN_SCENARIOS.map(s => s.avoid)
-
-function getModernAdvice(traditionalTerms: string[]): ModernAdvice & { guide: string } {
-  return getLocalAdvice(traditionalTerms)
+const DEFAULT_ALMANAC_MAPPINGS: AlmanacMappingConfig = {
+  version: 'local-2026-06-12',
+  updatedAt: '2026-06-12T00:00:00.000Z',
+  modernScenarios: DEFAULT_MODERN_SCENARIOS,
+  starMappings: DEFAULT_STAR_MAPPINGS,
+  defaultAdvice: DEFAULT_ADVICE
 }
 
-function getLocalAdvice(traditionalTerms: string[]): ModernAdvice & { guide: string } {
-  if (!traditionalTerms || traditionalTerms.length === 0) {
-    return {
-      suitable: ['处理日常事务', '整理环境'],
-      avoid: ['过度计划', '追求完美'],
-      keyword: '顺其自然',
-      trait: '节奏平稳',
-      guide: '今日平平淡淡，顺其自然即可'
-    }
+let activeMappingConfig = DEFAULT_ALMANAC_MAPPINGS
+let hasHydratedMappingCache = false
+let termMappingCache: Record<string, ModernScenarioMapping> = {}
+let missingTermCache = new Set<string>()
+let termMappingRequests = new Map<string, Promise<void>>()
+
+export function getActiveAlmanacMappings(): AlmanacMappingConfig {
+  hydrateAlmanacMappingCache()
+  return activeMappingConfig
+}
+
+export async function loadAlmanacMappings(terms: string[] = []): Promise<AlmanacMappingConfig> {
+  hydrateAlmanacMappingCache()
+
+  const normalizedTerms = Array.from(new Set(terms.map((term) => term.trim()).filter(Boolean)))
+  const termsToLoad = normalizedTerms.filter((term) => !termMappingCache[term] && !missingTermCache.has(term))
+
+  if (termsToLoad.length === 0) {
+    return activeMappingConfig
   }
 
-  const scenario = MODERN_SCENARIOS.find((item) =>
-    item.traditional.some((term) => traditionalTerms.includes(term))
-  )
+  await Promise.all(termsToLoad.map((term) => loadAlmanacTermMapping(term)))
+  rebuildActiveMappingConfig()
+  return activeMappingConfig
+}
 
-  if (scenario) {
-    return {
-      suitable: scenario.suitable.slice(0, 3),
-      avoid: scenario.avoid,
-      keyword: scenario.trait,
-      trait: scenario.trait,
-      guide: scenario.summary
-    }
+function hydrateAlmanacMappingCache(): void {
+  if (hasHydratedMappingCache) return
+  hasHydratedMappingCache = true
+
+  const cached = getStorage<Record<string, unknown> | null>(ALMANAC_TERM_MAPPINGS_CACHE_KEY, null)
+  if (!isRecord(cached)) {
+    return
   }
 
-  return {
-    suitable: ['处理日常事务', '整理环境'],
-    avoid: ['过度计划', '追求完美'],
-    keyword: '顺其自然',
-    trait: '节奏平稳',
-    guide: '今日平平淡淡，顺其自然即可'
+  Object.entries(cached).forEach(([term, value]) => {
+    const mapping = normalizeTermMapping(value, term)
+    if (mapping) {
+      termMappingCache[term] = mapping
+    }
+  })
+  rebuildActiveMappingConfig()
+}
+
+function loadAlmanacTermMapping(term: string): Promise<void> {
+  const pending = termMappingRequests.get(term)
+  if (pending) {
+    return pending
+  }
+
+  const request = requestJson<Partial<AlmanacTermMapping>>('/api/almanac/mappings', { term })
+    .then((remote) => {
+      const mapping = normalizeTermMapping(remote, term)
+      if (mapping) {
+        termMappingCache[term] = mapping
+        setStorage(ALMANAC_TERM_MAPPINGS_CACHE_KEY, termMappingCache)
+        return
+      }
+      missingTermCache.add(term)
+    })
+    .catch((error) => {
+      if (import.meta.env.DEV) {
+        console.warn('[almanac:mappings]', term, error)
+      }
+    })
+    .finally(() => {
+      termMappingRequests.delete(term)
+    })
+
+  termMappingRequests.set(term, request)
+  return request
+}
+
+function rebuildActiveMappingConfig(): void {
+  activeMappingConfig = {
+    ...DEFAULT_ALMANAC_MAPPINGS,
+    modernScenarios: [...Object.values(termMappingCache), ...DEFAULT_MODERN_SCENARIOS]
   }
 }
 
@@ -305,15 +386,15 @@ export function getDayAlmanac(input: Date | string = new Date()): DayAlmanac {
   const date = typeof input === 'string' ? parseDateKey(input) : input
   const dateKey = formatDateKey(date)
   const lunar = Lunar.fromDate(date)
-  const seed = getDateSeed(dateKey)
   const currentHourId = getCurrentTimeBranchId()
   const lunarDate = getLunarDate(date)
+  const mappingConfig = getActiveAlmanacMappings()
 
   const traditionalSuitable = lunar.getDayYi()
   const traditionalAvoid = lunar.getDayJi()
-  const modernAdvice = getModernAdvice(traditionalSuitable)
+  const modernAdvice = getModernAdvice(traditionalSuitable, mappingConfig)
 
-  const hours = getHourAlmanacs(dateKey, currentHourId)
+  const hours = getHourAlmanacs(dateKey, currentHourId, mappingConfig)
   const highlightHour = hours.find((hour) => hour.isCurrent) || hours[0]
 
   return {
@@ -332,52 +413,253 @@ export function getDayAlmanac(input: Date | string = new Date()): DayAlmanac {
     traditionalAvoid,
     suitable: modernAdvice.suitable,
     avoid: modernAdvice.avoid,
+    keyword: modernAdvice.keyword,
+    trait: modernAdvice.trait,
+    guide: modernAdvice.guide,
     highlightHour,
     hours
   }
 }
 
-export async function fetchDayAlmanac(input: Date | string = new Date()): Promise<DayAlmanac> {
-  const fallback = getDayAlmanac(input)
+function getModernAdvice(
+  traditionalTerms: string[],
+  mappingConfig = getActiveAlmanacMappings()
+): ModernAdvice & { guide: string } {
+  const defaultAdvice = mappingConfig.defaultAdvice
 
-  try {
-    const remote = await requestJson<Partial<DayAlmanac>>('/api/almanac/day', { date: fallback.dateKey })
-    return normalizeRemoteAlmanac(remote, fallback)
-  } catch (error) {
-    if (import.meta.env.DEV) {
-      console.warn('[almanac:fetch]', error)
-    }
-    return fallback
+  if (!traditionalTerms || traditionalTerms.length === 0) {
+    return defaultAdvice
+  }
+
+  const scenario = mappingConfig.modernScenarios.find((item) =>
+    item.traditional.some((term) => traditionalTerms.includes(term))
+  )
+
+  if (!scenario) {
+    return defaultAdvice
+  }
+
+  return {
+    suitable: scenario.suitable.slice(0, 3),
+    avoid: scenario.avoid,
+    keyword: scenario.keyword || scenario.trait,
+    trait: scenario.trait,
+    guide: scenario.summary
   }
 }
 
-function normalizeRemoteAlmanac(remote: Partial<DayAlmanac> | null | undefined, fallback: DayAlmanac): DayAlmanac {
-  if (!remote || remote.dateKey !== fallback.dateKey) {
-    return fallback
+export function getHourAlmanacs(
+  dateKey: DateKey,
+  currentHourId = getCurrentTimeBranchId(),
+  mappingConfig = getActiveAlmanacMappings()
+): HourAlmanac[] {
+  const date = parseDateKey(dateKey)
+  const lunar = Lunar.fromDate(date)
+  const lunarTimes = lunar.getTimes()
+  const seed = getDateSeed(dateKey)
+  const starMappings = mappingConfig.starMappings.length > 0 ? mappingConfig.starMappings : DEFAULT_STAR_MAPPINGS
+
+  return TIME_BRANCHES.map((branch, index) => {
+    const lunarTime = lunarTimes[index]
+    const traditionalSuitable = lunarTime.getYi()
+    const traditionalAvoid = lunarTime.getJi()
+    const mapping = starMappings[(seed + index) % starMappings.length]
+    const hourAdvice = mapping.advice
+
+    return {
+      branch,
+      star: mapping.star,
+      level: mapping.level,
+      levelText: mapping.levelText,
+      suitable: hourAdvice.suitable,
+      avoid: hourAdvice.avoid,
+      traditional: traditionalSuitable,
+      traditionalSuitable,
+      traditionalAvoid,
+      keyword: hourAdvice.keyword,
+      trait: hourAdvice.trait,
+      guide: buildGuide(branch, mapping),
+      isCurrent: branch.id === currentHourId
+    }
+  })
+}
+
+export function getDateSeed(dateKey: string): number {
+  return dateKey.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
+}
+
+function normalizeTermMapping(value: unknown, fallbackTerm: string): ModernScenarioMapping | null {
+  if (!isRecord(value)) {
+    return null
   }
 
-  const traditionalSuitable = safeStringArray(remote.traditionalSuitable, fallback.traditionalSuitable)
-  const traditionalAvoid = safeStringArray(remote.traditionalAvoid, fallback.traditionalAvoid)
+  if (value.matched === false) {
+    return null
+  }
+
+  const storedScenario = normalizeScenarioMapping(value)
+  if (storedScenario) {
+    return storedScenario
+  }
+
+  const term = safeString(value.term, fallbackTerm)
+  const suitable = safeStringArray(value.suitable, [])
+  const avoid = safeStringArray(value.avoid, [])
+  const trait = safeString(value.trait, '')
+  const summary = safeString(value.guide, '')
+
+  if (!term || suitable.length === 0 || avoid.length === 0 || !trait || !summary) {
+    return null
+  }
+
+  const keyword = safeString(value.keyword, trait)
+  const category = safeString(value.category, '')
+  const priority = typeof value.priority === 'number' && Number.isFinite(value.priority) ? value.priority : undefined
 
   return {
-    ...fallback,
-    title: safeString(remote.title, fallback.title),
-    weekdayText: safeString(remote.weekdayText, fallback.weekdayText),
-    lunarText: safeString(remote.lunarText, fallback.lunarText),
-    festivalText: typeof remote.festivalText === 'string' ? remote.festivalText : fallback.festivalText,
-    clash: safeString(remote.clash, fallback.clash),
-    sexagenary: safeString(remote.sexagenary, fallback.sexagenary),
-    pengzu: safeString(remote.pengzu, fallback.pengzu),
-    luckyGods: safeStringArray(remote.luckyGods, fallback.luckyGods),
-    unluckyGods: safeStringArray(remote.unluckyGods, fallback.unluckyGods),
-    traditional: safeStringArray(remote.traditional, traditionalSuitable),
-    traditionalSuitable,
-    traditionalAvoid,
-    suitable: safeStringArray(remote.suitable, fallback.suitable),
-    avoid: safeStringArray(remote.avoid, fallback.avoid),
-    hours: fallback.hours,
-    highlightHour: fallback.highlightHour
+    traditional: [term],
+    suitable,
+    avoid,
+    keyword,
+    trait,
+    summary,
+    ...(category ? { category } : {}),
+    ...(priority !== undefined ? { priority } : {})
   }
+}
+
+function normalizeAlmanacMappings(value: unknown): AlmanacMappingConfig | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const modernScenarios = normalizeScenarioMappings(value.modernScenarios)
+  const starMappings = normalizeStarMappings(value.starMappings)
+  const defaultAdvice = normalizeDefaultAdvice(value.defaultAdvice)
+
+  return {
+    version: safeString(value.version, DEFAULT_ALMANAC_MAPPINGS.version),
+    updatedAt: safeString(value.updatedAt, DEFAULT_ALMANAC_MAPPINGS.updatedAt),
+    modernScenarios,
+    starMappings,
+    defaultAdvice
+  }
+}
+
+function normalizeScenarioMappings(value: unknown): ModernScenarioMapping[] {
+  if (!Array.isArray(value)) {
+    return DEFAULT_MODERN_SCENARIOS
+  }
+
+  const mappings = value
+    .map((item) => normalizeScenarioMapping(item))
+    .filter((item): item is ModernScenarioMapping => Boolean(item))
+
+  return mappings.length > 0 ? mappings : DEFAULT_MODERN_SCENARIOS
+}
+
+function normalizeScenarioMapping(value: unknown): ModernScenarioMapping | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const traditional = safeStringArray(value.traditional, [])
+  const suitable = safeStringArray(value.suitable, [])
+  const avoid = safeStringArray(value.avoid, [])
+  const trait = safeString(value.trait, '')
+  const summary = safeString(value.summary, '')
+
+  if (traditional.length === 0 || suitable.length === 0 || avoid.length === 0 || !trait || !summary) {
+    return null
+  }
+
+  const keyword = safeString(value.keyword, trait)
+  const category = safeString(value.category, '')
+  const priority = typeof value.priority === 'number' && Number.isFinite(value.priority) ? value.priority : undefined
+
+  return {
+    traditional,
+    suitable,
+    avoid,
+    keyword,
+    trait,
+    summary,
+    ...(category ? { category } : {}),
+    ...(priority !== undefined ? { priority } : {})
+  }
+}
+
+function normalizeStarMappings(value: unknown): StarMapping[] {
+  if (!Array.isArray(value)) {
+    return DEFAULT_STAR_MAPPINGS
+  }
+
+  const mappings = value
+    .map((item) => normalizeStarMapping(item))
+    .filter((item): item is StarMapping => Boolean(item))
+
+  return mappings.length > 0 ? mappings : DEFAULT_STAR_MAPPINGS
+}
+
+function normalizeStarMapping(value: unknown): StarMapping | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const star = safeString(value.star, '')
+  const level = isAuspiciousLevel(value.level) ? value.level : null
+  const levelText = value.levelText === '吉' || value.levelText === '平' || value.levelText === '凶' ? value.levelText : null
+  const advice = normalizeModernAdvice(value.advice)
+
+  if (!star || !level || !levelText || !advice) {
+    return null
+  }
+
+  return {
+    star,
+    level,
+    levelText,
+    advice
+  }
+}
+
+function normalizeModernAdvice(value: unknown): ModernAdvice | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const suitable = safeStringArray(value.suitable, [])
+  const avoid = safeStringArray(value.avoid, [])
+  const keyword = safeString(value.keyword, '')
+  const trait = safeString(value.trait, '')
+
+  if (suitable.length === 0 || avoid.length === 0 || !keyword || !trait) {
+    return null
+  }
+
+  return { suitable, avoid, keyword, trait }
+}
+
+function normalizeDefaultAdvice(value: unknown): AlmanacDefaultAdvice {
+  if (!isRecord(value)) {
+    return DEFAULT_ADVICE
+  }
+
+  const suitable = safeStringArray(value.suitable, DEFAULT_ADVICE.suitable)
+  const avoid = safeStringArray(value.avoid, DEFAULT_ADVICE.avoid)
+  const keyword = safeString(value.keyword, DEFAULT_ADVICE.keyword)
+  const trait = safeString(value.trait, DEFAULT_ADVICE.trait)
+  const guide = safeString(value.guide, DEFAULT_ADVICE.guide)
+
+  return { suitable, avoid, keyword, trait, guide }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isAuspiciousLevel(value: unknown): value is StarMapping['level'] {
+  return value === 'good' || value === 'neutral' || value === 'bad'
 }
 
 function safeString(value: unknown, fallback: string): string {
@@ -393,40 +675,6 @@ function safeStringArray(value: unknown, fallback: string[]): string[] {
     .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     .map((item) => item.trim())
   return cleaned.length > 0 ? cleaned : fallback
-}
-
-export function getHourAlmanacs(dateKey: DateKey, currentHourId = getCurrentTimeBranchId()): HourAlmanac[] {
-  const date = parseDateKey(dateKey)
-  const lunar = Lunar.fromDate(date)
-  const lunarTimes = lunar.getTimes()
-  const seed = getDateSeed(dateKey)
-
-  return TIME_BRANCHES.map((branch, index) => {
-    const lunarTime = lunarTimes[index]
-    const traditionalSuitable = lunarTime.getYi()
-    const traditionalAvoid = lunarTime.getJi()
-    const mapping = STAR_MAPPINGS[(seed + index) % STAR_MAPPINGS.length]
-    const hourAdvice = mapping.advice
-
-    return {
-      branch,
-      star: mapping.star,
-      level: mapping.level,
-      levelText: mapping.levelText,
-      suitable: hourAdvice.suitable,
-      avoid: hourAdvice.avoid,
-      traditional: traditionalSuitable,
-      traditionalSuitable,
-      traditionalAvoid,
-      keyword: hourAdvice.keyword,
-      guide: buildGuide(branch, mapping),
-      isCurrent: branch.id === currentHourId
-    }
-  })
-}
-
-export function getDateSeed(dateKey: string): number {
-  return dateKey.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
 }
 
 function buildGuide(branch: TimeBranch, mapping: StarMapping): string {
