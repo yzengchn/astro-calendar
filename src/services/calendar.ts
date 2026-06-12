@@ -4,6 +4,16 @@ import { getLuckyMarkMap } from './lucky-marks'
 
 export const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
 
+export type WeekFirstDay = 0 | 1 | 6 // 0=Sunday, 1=Monday, 6=Saturday
+
+export function getWeekdayLabels(firstDay: WeekFirstDay): string[] {
+  const order: number[] = []
+  for (let i = 0; i < 7; i++) {
+    order.push((firstDay + i) % 7)
+  }
+  return order.map(i => WEEKDAYS[i])
+}
+
 export const TIME_BRANCHES: TimeBranch[] = [
   { id: 0, name: '子时', range: '23:00-00:59', startHour: 23, endHour: 1 },
   { id: 1, name: '丑时', range: '01:00-02:59', startHour: 1, endHour: 3 },
@@ -125,9 +135,9 @@ export function getTodayKey(): DateKey {
   return formatDateKey(new Date())
 }
 
-export function getMonthCalendar(year: number, month: number, selectedKey = getTodayKey()): MonthCalendar {
+export function getMonthCalendar(year: number, month: number, selectedKey = getTodayKey(), weekFirstDay: WeekFirstDay = 0): MonthCalendar {
   const firstDay = new Date(year, month - 1, 1)
-  const startOffset = firstDay.getDay()
+  const startOffset = (firstDay.getDay() - weekFirstDay + 7) % 7
   const startDate = new Date(year, month - 1, 1 - startOffset)
   const todayKey = getTodayKey()
   const luckyMarkMap = getLuckyMarkMap()

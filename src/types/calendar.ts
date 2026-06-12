@@ -11,9 +11,8 @@ export interface HolidayItem {
   tag: HolidayTag
 }
 
-export interface HolidayMonth {
+export interface HolidayYear {
   year: number
-  month?: number
   source: string
   updatedAt: string
   holidays: HolidayItem[]

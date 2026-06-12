@@ -9,12 +9,16 @@ import {
   getBaziAnalysis,
   getDaYunList,
   getChineseZodiacAnimal,
-  CHINESE_ZODIAC_ANIMALS,
   getWuXingColor,
+  getWuXingModern,
+  getDayGanReading,
+  getShiShenRole,
+  getMingGongReading,
+  getDaYunReading,
+  CHINESE_ZODIAC_ANIMALS,
   type BaziInfo,
   type BaziAnalysis,
-  type DaYunItem,
-  type PillarDetail
+  type DaYunItem
 } from '@/services/bazi'
 import { lightHaptic, showToast, trackEvent } from '@/services/platform'
 
@@ -41,23 +45,69 @@ const zodiacAnimal = computed(() => {
   return getChineseZodiacAnimal(baziInfo.value.zodiac)
 })
 
+// 日主解读
+const dayMasterReading = computed(() => {
+  if (!baziInfo.value) return null
+  return getDayGanReading(baziInfo.value.dayGanZhi)
+})
+
+// 五行统计（wuXing 返回如"金火"，需拆字统计）
+const wuXingCount = computed(() => {
+  if (!analysis.value) return []
+  const counts: Record<string, number> = { '金': 0, '木': 0, '水': 0, '火': 0, '土': 0 }
+  const pillars = [analysis.value.pillars.year, analysis.value.pillars.month, analysis.value.pillars.day, analysis.value.pillars.hour]
+  for (const p of pillars) {
+    for (const ch of p.wuXing) {
+      if (counts[ch] !== undefined) counts[ch]++
+    }
+  }
+  const max = Math.max(...Object.values(counts), 1)
+  return Object.entries(counts).map(([name, count]) => ({
+    name,
+    count,
+    barWidth: Math.round(count / 8 * 100),
+    color: getWuXingColor(name),
+    ...getWuXingModern(name)
+  }))
+})
+
+// 主导五行
+const dominantWuXing = computed(() => {
+  if (!wuXingCount.value.length) return null
+  return wuXingCount.value.reduce((a, b) => a.count >= b.count ? a : b)
+})
+
+// 十神解读（取月柱十神）
+const monthShiShen = computed(() => {
+  if (!analysis.value) return []
+  const roles = analysis.value.pillars.month.shiShenZhi.map(s => ({
+    name: s,
+    ...getShiShenRole(s)
+  }))
+  return roles.slice(0, 3)
+})
+
+// 命宫解读
+const mingGongReading = computed(() => {
+  if (!analysis.value) return ''
+  return getMingGongReading(analysis.value.mingGong)
+})
+
+const currentDaYun = computed(() => daYunList.value.find(d => d.isCurrent))
+
 const pillarKeys = ['year', 'month', 'day', 'hour'] as const
 const pillarLabels = ['年柱', '月柱', '日柱', '时柱']
 
-function getPillar(key: typeof pillarKeys[number]): PillarDetail | undefined {
+function getPillar(key: typeof pillarKeys[number]) {
   if (!analysis.value) return undefined
   return analysis.value.pillars[key]
 }
 
-function getPillarMeta(key: typeof pillarKeys[number]): { label: string; sub: string } {
-  if (!baziInfo.value) return { label: '', sub: '' }
-  if (key === 'year') return { label: '年柱', sub: `${baziInfo.value.zodiac}年` }
-  if (key === 'day') return { label: '日柱', sub: '日元' }
-  if (key === 'month') return { label: '月柱', sub: '' }
-  return { label: '时柱', sub: '' }
+// 取天干五行（wuXing 为"金火"格式，取首字）
+function pillarGanWuXing(key: typeof pillarKeys[number]): string {
+  const wx = getPillar(key)?.wuXing || ''
+  return wx.charAt(0) || '土'
 }
-
-const currentDaYun = computed(() => daYunList.value.find(d => d.isCurrent))
 
 onMounted(() => {
   loadBazi()
@@ -84,7 +134,6 @@ function handleSave() {
     showToast('请选择出生日期')
     return
   }
-
   const bazi = calculateBazi(formDate.value, formHour.value, formGender.value, '')
   saveBaziInfo(bazi)
   baziInfo.value = bazi
@@ -140,26 +189,121 @@ function handleHourChange(event: PickerChangeEvent) {
     <view class="topbar">
       <view class="topbar-title">
         <text class="topbar-title-main">八字·生肖</text>
-        <text class="topbar-title-sub">本命格局与生肖特质</text>
+        <text class="topbar-title-sub">观古今之时，悟命理人生</text>
       </view>
     </view>
 
-    <!-- 已有八字：展示命盘 + 生肖 -->
+    <!-- 已有八字 -->
     <view v-if="hasBazi && baziInfo" class="bazi-content">
-      <!-- 生肖卡片 -->
-      <view v-if="zodiacAnimal" class="panel animal-card">
-        <view class="animal-header">
-          <text class="animal-symbol">{{ zodiacAnimal.symbol }}</text>
-          <view class="animal-info">
-            <text class="animal-name">{{ zodiacAnimal.name }}</text>
-            <text class="animal-trait">{{ zodiacAnimal.trait }}</text>
-          </view>
-          <view class="animal-element">
-            <text class="animal-element-label">五行</text>
-            <text class="animal-element-value" :style="{ color: getWuXingColor(zodiacAnimal.element) }">{{ zodiacAnimal.element }}</text>
+
+      <!-- 四柱命盘 -->
+      <view class="panel pillar-card">
+        <view class="pillar-row">
+          <view v-for="key in pillarKeys" :key="key" class="pillar">
+            <text class="pillar-label">{{ pillarLabels[pillarKeys.indexOf(key)] }}</text>
+            <view class="pillar-gz-row">
+              <text class="pillar-gan" :style="{ color: getWuXingColor(pillarGanWuXing(key)) }">{{ getPillar(key)?.ganZhi.slice(0, 1) }}</text>
+              <text class="pillar-zhi">{{ getPillar(key)?.ganZhi.slice(1) }}</text>
+            </view>
+            <view class="pillar-wx-tag" :style="{ background: getWuXingColor(pillarGanWuXing(key)), opacity: 0.12 }"></view>
+            <text class="pillar-wx-text" :style="{ color: getWuXingColor(pillarGanWuXing(key)) }">{{ pillarGanWuXing(key) }}</text>
           </view>
         </view>
-        <text class="animal-desc">{{ zodiacAnimal.description }}</text>
+        <view class="pillar-meta">
+          <text class="pillar-meta-item">{{ baziInfo.birthDate }}</text>
+          <text class="pillar-meta-item">{{ baziInfo.birthTime }}:00</text>
+          <text class="pillar-meta-item">{{ baziInfo.gender === 'male' ? '乾造' : '坤造' }}</text>
+        </view>
+      </view>
+
+      <!-- 日主性格：古→今→悟 -->
+      <view v-if="dayMasterReading" class="panel reading-card">
+        <view class="reading-header">
+          <text class="reading-title">日主 · {{ baziInfo.dayGanZhi.slice(0, 1) }}{{ getWuXingModern(pillarGanWuXing('day')).keyword }}</text>
+        </view>
+        <view class="reading-body">
+          <view class="reading-layer">
+            <text class="reading-label-ancient">古</text>
+            <text class="reading-text-ancient">{{ dayMasterReading.trait }}</text>
+          </view>
+          <view class="reading-layer">
+            <text class="reading-label-modern">今</text>
+            <text class="reading-text-modern">{{ dayMasterReading.modern }}</text>
+          </view>
+          <view class="reading-layer">
+            <text class="reading-label-insight">悟</text>
+            <text class="reading-text-insight">{{ dayMasterReading.insight }}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 五行格局 -->
+      <view v-if="dominantWuXing" class="panel reading-card">
+        <view class="reading-header">
+          <text class="reading-title">五行格局 · {{ dominantWuXing.name }}{{ dominantWuXing.keyword }}</text>
+        </view>
+        <view class="wuxing-chart">
+          <view v-for="wx in wuXingCount" :key="wx.name" class="wuxing-row">
+            <text class="wuxing-name" :style="{ color: wx.color }">{{ wx.name }}</text>
+            <view class="wuxing-bar-bg">
+              <view class="wuxing-bar" :style="{ width: wx.barWidth + '%', background: wx.color }"></view>
+            </view>
+            <text class="wuxing-count">{{ wx.count }}</text>
+          </view>
+        </view>
+        <view class="reading-layer" style="margin-top: 16rpx;">
+          <text class="reading-label-modern">今</text>
+          <text class="reading-text-modern">{{ dominantWuXing.modern }}</text>
+        </view>
+        <view class="reading-layer">
+          <text class="reading-label-insight">悟</text>
+          <text class="reading-text-insight">{{ dominantWuXing.insight }}</text>
+        </view>
+      </view>
+
+      <!-- 十神角色 -->
+      <view v-if="monthShiShen.length" class="panel reading-card">
+        <view class="reading-header">
+          <text class="reading-title">命局角色</text>
+        </view>
+        <view class="shishen-list">
+          <view v-for="s in monthShiShen" :key="s.name" class="shishen-item">
+            <text class="shishen-name">{{ s.name }}</text>
+            <text class="shishen-role">{{ s.role }}</text>
+            <text class="shishen-advice">{{ s.advice }}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 命宫 -->
+      <view v-if="analysis" class="panel reading-card">
+        <view class="reading-header">
+          <text class="reading-title">命宫 · {{ analysis.mingGong }}</text>
+        </view>
+        <view class="reading-body">
+          <view class="reading-layer">
+            <text class="reading-label-ancient">古</text>
+            <text class="reading-text-ancient">{{ analysis.mingGong }}（{{ analysis.mingGongNaYin }}）</text>
+          </view>
+          <view class="reading-layer">
+            <text class="reading-label-modern">今</text>
+            <text class="reading-text-modern">{{ mingGongReading }}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 生肖卡片 -->
+      <view v-if="zodiacAnimal" class="panel reading-card">
+        <view class="reading-header">
+          <text class="reading-title">生肖 · {{ zodiacAnimal.name }}</text>
+        </view>
+        <view class="animal-row">
+          <text class="animal-symbol">{{ zodiacAnimal.symbol }}</text>
+          <view class="animal-brief">
+            <text class="animal-trait">{{ zodiacAnimal.trait }}</text>
+            <text class="animal-desc-compact">{{ zodiacAnimal.description }}</text>
+          </view>
+        </view>
         <view class="animal-lucky">
           <view class="lucky-item">
             <text class="lucky-label">幸运数</text>
@@ -176,89 +320,6 @@ function handleHourChange(event: PickerChangeEvent) {
         </view>
       </view>
 
-      <!-- 八字命盘 -->
-      <view class="section-title">
-        <text>八字命盘</text>
-      </view>
-      <view class="panel pillar-card">
-        <view class="pillar-row">
-          <view v-for="key in pillarKeys" :key="key" class="pillar">
-            <text class="pillar-label">{{ getPillarMeta(key).label }}</text>
-            <text class="pillar-gan">{{ getPillar(key)?.ganZhi.slice(0, 1) }}</text>
-            <text class="pillar-zhi">{{ getPillar(key)?.ganZhi.slice(1) }}</text>
-            <view class="pillar-wuxing" :style="{ borderColor: getWuXingColor(getPillar(key)?.wuXing || '') }">
-              <text :style="{ color: getWuXingColor(getPillar(key)?.wuXing || '') }">{{ getPillar(key)?.wuXing }}</text>
-            </view>
-          </view>
-        </view>
-        <view class="pillar-meta">
-          <text class="pillar-meta-item">{{ baziInfo.birthDate }}</text>
-          <text class="pillar-meta-item">{{ baziInfo.birthTime }}:00</text>
-          <text class="pillar-meta-item">{{ baziInfo.gender === 'male' ? '乾造' : '坤造' }}</text>
-        </view>
-      </view>
-
-      <!-- 命盘详情 -->
-      <view v-if="analysis" class="section-title">
-        <text>命盘详解</text>
-      </view>
-      <view v-if="analysis" class="panel detail-card">
-        <!-- 纳音 -->
-        <view class="detail-row">
-          <text class="detail-label">纳音</text>
-          <text class="detail-value">{{ analysis.pillars.year.naYin }} · {{ analysis.pillars.month.naYin }} · {{ analysis.pillars.day.naYin }} · {{ analysis.pillars.hour.naYin }}</text>
-        </view>
-        <!-- 十神 -->
-        <view class="detail-row">
-          <text class="detail-label">十神</text>
-          <view class="detail-tags">
-            <text class="detail-tag" v-for="s in analysis.pillars.month.shiShenZhi" :key="s">{{ s }}</text>
-          </view>
-        </view>
-        <!-- 藏干 -->
-        <view class="detail-row">
-          <text class="detail-label">日支藏干</text>
-          <view class="detail-tags">
-            <text class="detail-tag" v-for="g in analysis.pillars.day.hideGan" :key="g">{{ g }}</text>
-          </view>
-        </view>
-        <!-- 命宫 身宫 -->
-        <view class="detail-row">
-          <text class="detail-label">命宫</text>
-          <text class="detail-value">{{ analysis.mingGong }}（{{ analysis.mingGongNaYin }}）</text>
-        </view>
-        <view class="detail-row">
-          <text class="detail-label">身宫</text>
-          <text class="detail-value">{{ analysis.shenGong }}（{{ analysis.shenGongNaYin }}）</text>
-        </view>
-        <!-- 胎元 胎息 -->
-        <view class="detail-row">
-          <text class="detail-label">胎元</text>
-          <text class="detail-value">{{ analysis.taiYuan }}（{{ analysis.taiYuanNaYin }}）</text>
-        </view>
-        <view class="detail-row">
-          <text class="detail-label">胎息</text>
-          <text class="detail-value">{{ analysis.taiXi }}（{{ analysis.taiXiNaYin }}）</text>
-        </view>
-        <!-- 冲煞 -->
-        <view class="detail-row">
-          <text class="detail-label">冲煞</text>
-          <text class="detail-value detail-clash">冲{{ analysis.chongShengXiao }}（{{ analysis.chong }}）煞{{ analysis.sha }}</text>
-        </view>
-        <!-- 彭祖 -->
-        <view class="detail-row">
-          <text class="detail-label">彭祖</text>
-          <text class="detail-value">{{ analysis.pengZuGan }}；{{ analysis.pengZuZhi }}</text>
-        </view>
-        <!-- 吉神 -->
-        <view v-if="analysis.jiShen.length" class="detail-row">
-          <text class="detail-label">吉神</text>
-          <view class="detail-tags">
-            <text class="detail-tag tag-good" v-for="s in analysis.jiShen.slice(0, 5)" :key="s">{{ s }}</text>
-          </view>
-        </view>
-      </view>
-
       <!-- 大运 -->
       <view v-if="daYunList.length" class="section-title">
         <text>大运</text>
@@ -267,15 +328,22 @@ function handleHourChange(event: PickerChangeEvent) {
           <text class="dayun-toggle-arrow" :class="{ open: showDaYun }">›</text>
         </view>
       </view>
-      <!-- 当前大运摘要 -->
-      <view v-if="currentDaYun && !showDaYun" class="panel dayun-current">
-        <view class="dayun-current-row">
-          <text class="dayun-current-gz">{{ currentDaYun.ganZhi }}</text>
-          <text class="dayun-current-age">{{ currentDaYun.startAge }}-{{ currentDaYun.endAge }}岁</text>
-          <text class="dayun-current-yr">{{ currentDaYun.startYear }}-{{ currentDaYun.endYear }}年</text>
+      <view v-if="currentDaYun" class="panel reading-card">
+        <view class="reading-header">
+          <text class="reading-title">当前大运 · {{ currentDaYun.ganZhi }}</text>
+          <text class="reading-sub">{{ currentDaYun.startAge }}-{{ currentDaYun.endAge }}岁</text>
+        </view>
+        <view class="reading-body">
+          <view class="reading-layer">
+            <text class="reading-label-modern">今</text>
+            <text class="reading-text-modern">{{ getDaYunReading(currentDaYun.ganZhi).phase }} · 适合顺势调整人生节奏</text>
+          </view>
+          <view class="reading-layer">
+            <text class="reading-label-insight">悟</text>
+            <text class="reading-text-insight">{{ getDaYunReading(currentDaYun.ganZhi).insight }}</text>
+          </view>
         </view>
       </view>
-      <!-- 大运列表 -->
       <view v-if="showDaYun" class="panel dayun-card">
         <view
           v-for="dy in daYunList"
@@ -284,12 +352,13 @@ function handleHourChange(event: PickerChangeEvent) {
           :class="{ current: dy.isCurrent }"
         >
           <text class="dayun-gz" :class="{ 'dayun-gz-current': dy.isCurrent }">{{ dy.ganZhi }}</text>
+          <text class="dayun-phase">{{ getDaYunReading(dy.ganZhi).phase }}</text>
           <text class="dayun-age">{{ dy.startAge }}-{{ dy.endAge }}岁</text>
           <text class="dayun-yr">{{ dy.startYear }}-{{ dy.endYear }}</text>
         </view>
       </view>
 
-      <!-- 操作按钮 -->
+      <!-- 操作 -->
       <view class="actions">
         <view class="btn btn-secondary" @tap="handleEdit"><text>修改信息</text></view>
         <view class="btn btn-danger" @tap="handleDelete"><text>删除</text></view>
@@ -299,7 +368,6 @@ function handleHourChange(event: PickerChangeEvent) {
     <!-- 未设置八字：输入表单 -->
     <view v-else class="bazi-form">
       <view class="panel form-card">
-        <!-- 日期行 -->
         <view class="form-row">
           <text class="form-row-label">出生日期</text>
           <picker mode="date" :value="formDate" start="1900-01-01" end="2030-12-31" @change="handleDateChange">
@@ -310,8 +378,6 @@ function handleHourChange(event: PickerChangeEvent) {
             </view>
           </picker>
         </view>
-
-        <!-- 时辰行 -->
         <view class="form-row">
           <text class="form-row-label">出生时辰</text>
           <picker mode="selector" :range="hours" range-key="label" :value="formHour" @change="handleHourChange">
@@ -321,35 +387,21 @@ function handleHourChange(event: PickerChangeEvent) {
             </view>
           </picker>
         </view>
-
-        <!-- 性别行 -->
         <view class="form-row">
           <text class="form-row-label">性别</text>
           <view class="gender-tags">
-            <view
-              class="gender-tag"
-              :class="{ active: formGender === 'male' }"
-              @tap="formGender = 'male'"
-            >
+            <view class="gender-tag" :class="{ active: formGender === 'male' }" @tap="formGender = 'male'">
               <text>♂ 男</text>
             </view>
-            <view
-              class="gender-tag"
-              :class="{ active: formGender === 'female' }"
-              @tap="formGender = 'female'"
-            >
+            <view class="gender-tag" :class="{ active: formGender === 'female' }" @tap="formGender = 'female'">
               <text>♀ 女</text>
             </view>
           </view>
         </view>
       </view>
-
-      <!-- 推算按钮 -->
       <view class="submit-bar">
         <view class="submit-btn" @tap="handleSave"><text>推算八字</text></view>
       </view>
-
-      <!-- 十二生肖概览 -->
       <view class="section-title">
         <text>十二生肖</text>
       </view>
@@ -388,153 +440,65 @@ function handleHourChange(event: PickerChangeEvent) {
   font-size: 22rpx;
 }
 
-/* Animal card */
-.animal-card {
-  padding: 24rpx;
-}
-
-.animal-header {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 16rpx;
-  margin-bottom: 16rpx;
-}
-
-.animal-symbol {
-  font-size: 60rpx;
-  line-height: 1;
-}
-
-.animal-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.animal-name {
-  display: block;
-  color: var(--gs-ink);
-  font-size: 32rpx;
-  font-weight: 900;
-}
-
-.animal-trait {
-  display: block;
-  margin-top: 4rpx;
-  color: var(--gs-gold);
-  font-size: 24rpx;
-  font-weight: 800;
-}
-
-.animal-element {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 10rpx 16rpx;
-  border: 1rpx solid rgba(199, 141, 42, 0.28);
-  border-radius: 14rpx;
-  background: rgba(245, 215, 110, 0.12);
-}
-
-.animal-element-label {
-  color: var(--gs-muted);
-  font-size: 18rpx;
-}
-
-.animal-element-value {
-  font-size: 26rpx;
-  font-weight: 900;
-}
-
-.animal-desc {
-  display: block;
-  color: var(--gs-ink);
-  font-size: 26rpx;
-  line-height: 1.55;
-  margin-bottom: 16rpx;
-}
-
-.animal-lucky {
-  display: flex;
-  flex-direction: row;
-  gap: 8rpx;
-}
-
-.animal-lucky .lucky-item {
-  flex: 1;
-  padding: 12rpx 10rpx;
-  border-radius: 12rpx;
-  background: rgba(49, 93, 118, 0.06);
-}
-
-.animal-lucky .lucky-label {
-  display: block;
-  color: var(--gs-muted);
-  font-size: 18rpx;
-}
-
-.animal-lucky .lucky-value {
-  display: block;
-  margin-top: 4rpx;
-  color: var(--gs-ink);
-  font-size: 22rpx;
-  font-weight: 800;
-}
-
-/* Pillar card */
+/* ===== Pillar card ===== */
 .pillar-card {
-  padding: 24rpx 16rpx;
+  padding: 28rpx 20rpx 24rpx;
 }
 
 .pillar-row {
   display: flex;
   flex-direction: row;
   justify-content: space-between;
-  gap: 4rpx;
 }
 
 .pillar {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6rpx;
+  gap: 4rpx;
   flex: 1;
   min-width: 0;
+  position: relative;
 }
 
 .pillar-label {
   color: var(--gs-muted);
-  font-size: 20rpx;
+  font-size: 18rpx;
   font-weight: 700;
 }
 
+.pillar-gz-row {
+  display: flex;
+  flex-direction: row;
+  gap: 2rpx;
+}
+
 .pillar-gan {
-  color: var(--gs-ink);
-  font-size: 40rpx;
+  font-size: 44rpx;
   font-weight: 900;
   line-height: 1.1;
 }
 
 .pillar-zhi {
   color: var(--gs-ink);
-  font-size: 40rpx;
+  font-size: 44rpx;
   font-weight: 900;
   line-height: 1.1;
 }
 
-.pillar-wuxing {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rpx 12rpx;
-  border: 1rpx solid var(--gs-line);
-  border-radius: 999rpx;
-  margin-top: 4rpx;
+.pillar-wx-tag {
+  position: absolute;
+  bottom: 8rpx;
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
 }
 
-.pillar-wuxing text {
-  font-size: 18rpx;
+.pillar-wx-text {
+  font-size: 16rpx;
   font-weight: 800;
+  position: relative;
+  z-index: 1;
 }
 
 .pillar-meta {
@@ -553,69 +517,245 @@ function handleHourChange(event: PickerChangeEvent) {
   font-weight: 700;
 }
 
-/* Detail card */
-.detail-card {
-  padding: 0;
-  overflow: hidden;
+/* ===== Reading card (古→今→悟) ===== */
+.reading-card {
+  padding: 24rpx;
 }
 
-.detail-row {
+.reading-header {
   display: flex;
   flex-direction: row;
-  align-items: flex-start;
-  padding: 18rpx 24rpx;
-  border-bottom: 1rpx solid var(--gs-line);
+  align-items: baseline;
+  gap: 12rpx;
+  margin-bottom: 16rpx;
 }
 
-.detail-row:last-child {
-  border-bottom: none;
+.reading-title {
+  color: var(--gs-ink);
+  font-size: 28rpx;
+  font-weight: 900;
 }
 
-.detail-label {
-  flex: none;
-  width: 100rpx;
+.reading-sub {
   color: var(--gs-muted);
   font-size: 22rpx;
   font-weight: 700;
-  padding-top: 2rpx;
 }
 
-.detail-value {
-  flex: 1;
+.reading-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.reading-layer {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12rpx;
+}
+
+.reading-label-ancient {
+  flex: none;
+  width: 40rpx;
+  padding: 2rpx 0;
+  color: var(--gs-muted);
+  font-size: 18rpx;
+  font-weight: 700;
+  text-align: center;
+  border-bottom: 2rpx solid var(--gs-line);
+}
+
+.reading-label-modern {
+  flex: none;
+  width: 40rpx;
+  padding: 2rpx 0;
+  color: var(--gs-blue);
+  font-size: 18rpx;
+  font-weight: 700;
+  text-align: center;
+  border-bottom: 2rpx solid var(--gs-blue);
+}
+
+.reading-label-insight {
+  flex: none;
+  width: 40rpx;
+  padding: 2rpx 0;
+  color: var(--gs-gold);
+  font-size: 18rpx;
+  font-weight: 700;
+  text-align: center;
+  border-bottom: 2rpx solid var(--gs-gold);
+}
+
+.reading-text-ancient {
+  color: var(--gs-muted);
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.reading-text-modern {
   color: var(--gs-ink);
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.reading-text-insight {
+  color: var(--gs-gold);
   font-size: 22rpx;
   font-weight: 700;
   line-height: 1.5;
 }
 
-.detail-clash {
-  color: var(--gs-red);
+/* ===== WuXing chart ===== */
+.wuxing-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  margin-bottom: 8rpx;
 }
 
-.detail-tags {
+.wuxing-row {
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.wuxing-name {
+  flex: none;
+  width: 36rpx;
+  font-size: 20rpx;
+  font-weight: 800;
+}
+
+.wuxing-bar-bg {
+  flex: 1;
+  height: 16rpx;
+  border-radius: 999rpx;
+  background: rgba(223, 210, 191, 0.3);
+  overflow: hidden;
+}
+
+.wuxing-bar {
+  height: 16rpx;
+  border-radius: 999rpx;
+  min-width: 8rpx;
+}
+
+.wuxing-count {
+  flex: none;
+  width: 28rpx;
+  color: var(--gs-muted);
+  font-size: 18rpx;
+  font-weight: 700;
+  text-align: right;
+}
+
+/* ===== ShiShen list ===== */
+.shishen-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.shishen-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.shishen-name {
+  flex: none;
+  width: 64rpx;
+  padding: 4rpx 0;
+  border: 1rpx solid var(--gs-blue);
+  border-radius: 999rpx;
+  color: var(--gs-blue);
+  font-size: 20rpx;
+  font-weight: 800;
+  text-align: center;
+}
+
+.shishen-role {
+  color: var(--gs-ink);
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.shishen-advice {
+  flex: 1;
+  color: var(--gs-muted);
+  font-size: 20rpx;
+  font-weight: 700;
+  text-align: right;
+}
+
+/* ===== Animal ===== */
+.animal-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16rpx;
+  margin-bottom: 14rpx;
+}
+
+.animal-symbol {
+  font-size: 48rpx;
+  line-height: 1;
+}
+
+.animal-brief {
+  flex: 1;
+  min-width: 0;
+}
+
+.animal-trait {
+  display: block;
+  color: var(--gs-gold);
+  font-size: 24rpx;
+  font-weight: 800;
+  margin-bottom: 6rpx;
+}
+
+.animal-desc-compact {
+  display: block;
+  color: var(--gs-muted);
+  font-size: 22rpx;
+  line-height: 1.5;
+}
+
+.animal-lucky {
+  display: flex;
+  flex-direction: row;
   gap: 8rpx;
 }
 
-.detail-tag {
-  padding: 4rpx 14rpx;
-  border: 1rpx solid var(--gs-line);
-  border-radius: 999rpx;
+.animal-lucky .lucky-item {
+  flex: 1;
+  padding: 10rpx 8rpx;
+  border-radius: 10rpx;
+  background: rgba(49, 93, 118, 0.06);
+}
+
+.animal-lucky .lucky-label {
+  display: block;
+  color: var(--gs-muted);
+  font-size: 16rpx;
+}
+
+.animal-lucky .lucky-value {
+  display: block;
+  margin-top: 4rpx;
   color: var(--gs-ink);
   font-size: 20rpx;
-  font-weight: 700;
-  background: rgba(49, 93, 118, 0.04);
+  font-weight: 800;
 }
 
-.detail-tag.tag-good {
-  border-color: rgba(199, 141, 42, 0.28);
-  color: var(--gs-gold);
-  background: rgba(199, 141, 42, 0.08);
-}
-
-/* DaYun */
+/* ===== DaYun ===== */
 .dayun-toggle {
   display: flex;
   flex-direction: row;
@@ -641,35 +781,6 @@ function handleHourChange(event: PickerChangeEvent) {
   transform: rotate(270deg);
 }
 
-.dayun-current {
-  padding: 18rpx 24rpx;
-}
-
-.dayun-current-row {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 16rpx;
-}
-
-.dayun-current-gz {
-  color: var(--gs-gold);
-  font-size: 32rpx;
-  font-weight: 900;
-}
-
-.dayun-current-age {
-  color: var(--gs-ink);
-  font-size: 24rpx;
-  font-weight: 800;
-}
-
-.dayun-current-yr {
-  color: var(--gs-muted);
-  font-size: 22rpx;
-  font-weight: 700;
-}
-
 .dayun-card {
   padding: 0;
   overflow: hidden;
@@ -679,7 +790,7 @@ function handleHourChange(event: PickerChangeEvent) {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 16rpx;
+  gap: 12rpx;
   padding: 14rpx 24rpx;
   border-bottom: 1rpx solid var(--gs-line);
 }
@@ -694,29 +805,36 @@ function handleHourChange(event: PickerChangeEvent) {
 
 .dayun-gz {
   color: var(--gs-muted);
-  font-size: 26rpx;
+  font-size: 24rpx;
   font-weight: 800;
-  width: 60rpx;
+  width: 50rpx;
 }
 
 .dayun-gz-current {
   color: var(--gs-gold);
 }
 
+.dayun-phase {
+  color: var(--gs-ink);
+  font-size: 20rpx;
+  font-weight: 700;
+  width: 80rpx;
+}
+
 .dayun-age {
   color: var(--gs-ink);
-  font-size: 22rpx;
+  font-size: 20rpx;
   font-weight: 700;
   flex: 1;
 }
 
 .dayun-yr {
   color: var(--gs-muted);
-  font-size: 20rpx;
+  font-size: 18rpx;
   font-weight: 700;
 }
 
-/* Actions */
+/* ===== Actions ===== */
 .actions {
   display: flex;
   flex-direction: row;
@@ -739,31 +857,23 @@ function handleHourChange(event: PickerChangeEvent) {
   font-weight: 800;
 }
 
-.btn-primary text {
-  color: #fff;
-}
-
-.btn-primary {
-  background: var(--gs-blue);
+.btn-secondary {
+  background: rgba(223, 210, 191, 0.4);
 }
 
 .btn-secondary text {
   color: var(--gs-ink);
 }
 
-.btn-secondary {
-  background: rgba(223, 210, 191, 0.4);
+.btn-danger {
+  background: rgba(184, 74, 63, 0.08);
 }
 
 .btn-danger text {
   color: var(--gs-red);
 }
 
-.btn-danger {
-  background: rgba(184, 74, 63, 0.08);
-}
-
-/* Form */
+/* ===== Form ===== */
 .form-card {
   padding: 0;
   overflow: hidden;
@@ -808,7 +918,6 @@ function handleHourChange(event: PickerChangeEvent) {
   color: var(--gs-muted);
 }
 
-/* Gender tags */
 .gender-tags {
   display: flex;
   flex-direction: row;
@@ -838,7 +947,6 @@ function handleHourChange(event: PickerChangeEvent) {
   font-weight: 800;
 }
 
-/* Submit bar */
 .submit-bar {
   margin-top: 24rpx;
 }
@@ -860,7 +968,7 @@ function handleHourChange(event: PickerChangeEvent) {
   letter-spacing: 2rpx;
 }
 
-/* Zodiac grid */
+/* ===== Zodiac grid ===== */
 .zodiac-grid {
   display: flex;
   flex-direction: row;

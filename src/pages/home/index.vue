@@ -6,9 +6,9 @@ import TimeCompass from '@/components/TimeCompass.vue'
 import TimelineView from '@/components/TimelineView.vue'
 import type { DayAlmanac, HourAlmanac } from '@/types/almanac'
 import type { CalendarDay, DateKey, HolidayItem } from '@/types/calendar'
-import { formatDateKey, getMonthCalendar, getTodayKey, isDateKey, parseDateKey, WEEKDAYS } from '@/services/calendar'
+import { formatDateKey, getMonthCalendar, getTodayKey, getWeekdayLabels, isDateKey, parseDateKey, type WeekFirstDay, WEEKDAYS } from '@/services/calendar'
 import { getDayAlmanac, loadAlmanacMappings } from '@/services/almanac'
-import { applyHolidayItems, fetchHolidayMonth } from '@/services/holidays'
+import { applyHolidayItems, fetchHolidayYear } from '@/services/holidays'
 import { getZodiacById, getZodiacFortune } from '@/services/zodiac'
 import { getStorage, lightHaptic, setStorage, trackEvent } from '@/services/platform'
 import { getNextSolarTerm, getSolarTermByDate } from '@/services/solar-terms'
@@ -61,12 +61,25 @@ const remoteHolidayItems = ref<HolidayItem[]>([])
 const activeInfoDetail = ref<InfoDetail | null>(null)
 const luckyMarksVersion = ref(0)
 
+// Settings (persisted, read on mount)
+const storedWeekFirst = getStorage<number>('week_first_day', 0)
+const weekFirstDay = ref<WeekFirstDay>([0, 1, 6].includes(storedWeekFirst) ? (storedWeekFirst as WeekFirstDay) : 0)
+const weekdayLabels = computed(() => getWeekdayLabels(weekFirstDay.value))
+
+const DEFAULT_VISIBLE_MODULES = ['season_info', 'advice', 'current_hour', 'twelve_hours', 'zodiac_entry']
+const storedModules = getStorage<string[]>('home_layout_modules', DEFAULT_VISIBLE_MODULES)
+const homeVisibleModules = ref<string[]>(Array.isArray(storedModules) && storedModules.length > 0 ? storedModules : [...DEFAULT_VISIBLE_MODULES])
+
+function isModuleVisible(key: string): boolean {
+  return homeVisibleModules.value.includes(key)
+}
+
 let holidayRequestId = 0
 let almanacMappingsRequestId = 0
 
 const baseMonthCalendar = computed(() => {
   luckyMarksVersion.value // depend on version to force recompute
-  return getMonthCalendar(currentYear.value, currentMonth.value, selectedDateKey.value)
+  return getMonthCalendar(currentYear.value, currentMonth.value, selectedDateKey.value, weekFirstDay.value)
 })
 const monthCalendar = computed(() => applyHolidayItems(baseMonthCalendar.value, remoteHolidayItems.value))
 const selectedDay = computed(() => monthCalendar.value.days.find((day) => day.dateKey === selectedDateKey.value))
@@ -201,6 +214,13 @@ onShow(() => {
   }
   zodiacId.value = getStorage('user_zodiac_sign', null)
   luckyMarksVersion.value += 1 // refresh lucky marks from storage
+  // Re-read settings in case they changed on settings page
+  const newWeekFirst = getStorage<number>('week_first_day', 0)
+  weekFirstDay.value = [0, 1, 6].includes(newWeekFirst) ? (newWeekFirst as WeekFirstDay) : 0
+  const newModules = getStorage<string[]>('home_layout_modules', DEFAULT_VISIBLE_MODULES)
+  homeVisibleModules.value = Array.isArray(newModules) && newModules.length > 0 ? newModules : [...DEFAULT_VISIBLE_MODULES]
+  const newTimeView = getStorage<string>('time_view_preference', 'timeline')
+  viewMode.value = newTimeView === 'compass' ? 'compass' : 'timeline'
   void loadAlmanacMappingConfig(selectedDateKey.value)
 })
 
@@ -214,9 +234,12 @@ watch(
 )
 
 watch(
-  [currentYear, currentMonth],
+  currentYear,
   () => {
-    void loadHolidayData()
+    const autoUpdate = getStorage<boolean>('holiday_auto_update', true)
+    if (autoUpdate !== false) {
+      void loadHolidayData()
+    }
   },
   { immediate: true }
 )
@@ -226,7 +249,7 @@ async function loadHolidayData(): Promise<void> {
   remoteHolidayItems.value = []
 
   try {
-    const result = await fetchHolidayMonth(currentYear.value, currentMonth.value)
+    const result = await fetchHolidayYear(currentYear.value)
     if (requestId !== holidayRequestId) return
     remoteHolidayItems.value = result.holidays
   } catch (error) {
@@ -425,6 +448,8 @@ function setCalendarViewMode(mode: CalendarViewMode): void {
 }
 
 function openSettings(): void {
+  closeMenu()
+  uni.navigateTo({ url: '/pages/settings/index' })
   trackEvent('calendar_settings_click', {
     source: 'side_menu'
   })
@@ -601,7 +626,7 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </view>
       <template v-else>
         <view v-if="calendarViewMode !== 'day'" class="weekday-row">
-          <text v-for="weekday in WEEKDAYS" :key="weekday">{{ weekday }}</text>
+          <text v-for="(label, i) in weekdayLabels" :key="i">{{ label }}</text>
         </view>
         <view
           class="calendar-grid"
@@ -647,7 +672,7 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </view>
 
       <!-- 时令信息 -->
-      <view class="info-grid">
+      <view v-if="isModuleVisible('season_info')" class="info-grid">
         <view
           v-if="moonPhase"
           class="info-card info-card-action"
@@ -714,7 +739,7 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </view>
 
       <!-- 月相详情 -->
-      <view v-if="moonPhase && activeInfoDetail === 'moon'" class="panel detail-panel">
+      <view v-if="isModuleVisible('season_info') && moonPhase && activeInfoDetail === 'moon'" class="panel detail-panel">
         <text class="detail-ancient">{{ moonPhase.ancient }}</text>
         <text class="detail-modern">{{ moonPhase.modern }}</text>
         <view class="detail-tags">
@@ -728,7 +753,7 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </view>
 
       <!-- 节气详情 -->
-      <view v-if="activeSolarTerm && activeInfoDetail === 'term'" class="panel detail-panel">
+      <view v-if="isModuleVisible('season_info') && activeSolarTerm && activeInfoDetail === 'term'" class="panel detail-panel">
         <text class="detail-climate">{{ activeSolarTerm.climate }}</text>
         <view class="detail-tags">
           <text class="detail-label">养生</text>
@@ -742,7 +767,7 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </view>
 
       <!-- 七十二候详情 -->
-      <view v-if="periodData && activeInfoDetail === 'period'" class="panel detail-panel">
+      <view v-if="isModuleVisible('season_info') && periodData && activeInfoDetail === 'period'" class="panel detail-panel">
         <text class="detail-ancient">{{ periodData.ancient }}</text>
         <text class="detail-modern">{{ periodData.modern }}</text>
         <view class="detail-tags">
@@ -752,7 +777,7 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </view>
 
       <!-- 数九三伏详情 -->
-      <view v-if="seasonSpecial && activeInfoDetail === 'season'" class="panel detail-panel">
+      <view v-if="isModuleVisible('season_info') && seasonSpecial && activeInfoDetail === 'season'" class="panel detail-panel">
         <text class="detail-ancient">{{ seasonSpecial.data.ancient }}</text>
         <text class="detail-modern">{{ seasonSpecial.data.modern }}</text>
         <view class="detail-tags">
@@ -762,7 +787,7 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </view>
 
       <!-- 今日宜忌 -->
-      <view class="panel advice-panel">
+      <view v-if="isModuleVisible('advice')" class="panel advice-panel">
         <view class="advice-row">
           <text class="advice-mark advice-good">宜</text>
           <view class="advice-content">
@@ -780,7 +805,7 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </view>
 
       <!-- 当前时辰 -->
-      <view class="panel hour-panel">
+      <view v-if="isModuleVisible('current_hour')" class="panel hour-panel">
         <view class="hour-header">
           <text class="hour-title">{{ selectedAlmanac.highlightHour.branch.name }}</text>
           <text class="hour-time">{{ selectedAlmanac.highlightHour.branch.range }}</text>
@@ -790,20 +815,20 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </view>
 
       <!-- 十二时辰 -->
-      <view class="section-title">
+      <view v-if="isModuleVisible('twelve_hours')" class="section-title">
         <text>十二时辰</text>
         <view class="view-switch">
           <button class="view-tab" :class="{ 'view-tab-active': viewMode === 'compass' }" @tap="setViewMode('compass')">⊚</button>
           <button class="view-tab" :class="{ 'view-tab-active': viewMode === 'timeline' }" @tap="setViewMode('timeline')">☰</button>
         </view>
       </view>
-      <view class="panel time-panel">
+      <view v-if="isModuleVisible('twelve_hours')" class="panel time-panel">
         <TimeCompass v-if="viewMode === 'compass'" :hours="selectedAlmanac.hours" :selected-id="selectedHourId" @select="selectHour" />
         <TimelineView v-else :hours="selectedAlmanac.hours" :selected-id="selectedHourId" @select="selectHour" />
       </view>
 
       <!-- 星座运势入口 -->
-      <view v-if="zodiacSign && zodiacFortunePreview" class="panel zodiac-entry-panel" @tap="openZodiac">
+      <view v-if="isModuleVisible('zodiac_entry') && zodiacSign && zodiacFortunePreview" class="panel zodiac-entry-panel" @tap="openZodiac">
         <view class="zodiac-entry-row">
           <text class="zodiac-entry-icon">{{ zodiacSign.symbol }}</text>
           <view class="zodiac-entry-copy">

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import CustomTabBar from '@/components/CustomTabBar.vue'
-import { getDayAlmanac } from '@/services/almanac'
+import { getDayAlmanac, getGodKeyword, getGodTrait } from '@/services/almanac'
 import type { DateKey } from '@/types/calendar'
 import { getTodayKey, parseDateKey } from '@/services/calendar'
 import type { DayAlmanac } from '@/types/almanac'
@@ -59,16 +59,33 @@ const moonPhase = computed(() => getMoonPhase(currentDate.value))
 const periodData = computed(() => getPeriodByDate(currentMonthDay.value))
 const seasonSpecial = computed(() => getSeasonSpecial(currentDate.value))
 const todayInsight = computed(() => moonPhase.value?.insight || periodData.value?.insight || seasonSpecial.value?.data.insight || '')
-const goodHours = computed(() => dayAlmanac.value.hours.filter(h => h.level === 'good'))
-const badHours = computed(() => dayAlmanac.value.hours.filter(h => h.level === 'bad'))
+const todayAncient = computed(() => moonPhase.value?.ancient || periodData.value?.ancient || seasonSpecial.value?.data.ancient || '')
+const todayModern = computed(() => moonPhase.value?.modern || periodData.value?.modern || seasonSpecial.value?.data.modern || '')
+
+// 时辰
+const currentHour = computed(() => dayAlmanac.value.hours.find(h => h.isCurrent))
+
+// 宜忌拆分：古文 vs 现代
+const traditionalSuitable = computed(() => dayAlmanac.value.traditionalSuitable.slice(0, 4))
+const traditionalAvoid = computed(() => dayAlmanac.value.traditionalAvoid.slice(0, 3))
+const modernSuitable = computed(() => dayAlmanac.value.suitable.slice(0, 3))
+const modernAvoid = computed(() => dayAlmanac.value.avoid.slice(0, 2))
+
+// 吉神凶神现代解读
+const luckyGodsModern = computed(() => dayAlmanac.value.luckyGods.map(g => getGodKeyword(g)).join(' · '))
+const unluckyGodsModern = computed(() => dayAlmanac.value.unluckyGods.map(g => getGodKeyword(g)).join(' · '))
+const luckyGodsTrait = computed(() => dayAlmanac.value.luckyGods.map(g => getGodTrait(g)).join(' · '))
+const unluckyGodsTrait = computed(() => dayAlmanac.value.unluckyGods.map(g => getGodTrait(g)).join(' · '))
+
+// 数九三伏标题
+const seasonTitle = computed(() => {
+  if (!seasonSpecial.value) return ''
+  return seasonSpecial.value.type === 'countNine' ? `数九 · ${(seasonSpecial.value.data as { name: string }).name}` : `三伏 · ${(seasonSpecial.value.data as { period: string }).period}`
+})
 
 // Zodiac sections
 const birthdayPickerValue = computed(() => birthday.value || '2000-01-01')
 const birthdayText = computed(() => (birthday.value ? birthday.value : '用生日自动匹配星座'))
-const dateText = computed(() => {
-  if (!fortune.value) return dateKey.value
-  return fortune.value.dateKey === getTodayKey() ? '今日' : fortune.value.dateKey
-})
 const cacheStatusText = computed(() => {
   if (!fortuneState.value) return ''
   if (fortuneState.value.source === 'fallback') return isOffline.value ? '离线本地内容' : '本地兜底内容'
@@ -241,61 +258,218 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
     <view class="topbar">
       <view class="topbar-title">
         <text class="topbar-title-main">今日运势</text>
-        <text class="topbar-title-sub">{{ dayAlmanac.title }}</text>
+        <text class="topbar-title-sub">观古今之时，悟日常之道</text>
       </view>
     </view>
 
-    <!-- 今日总览 -->
-    <view class="panel overview-panel">
-      <view class="overview-row">
-        <text class="overview-label">今日关键词</text>
-        <text class="overview-keyword">{{ dayAlmanac.keyword }}</text>
+    <!-- 日期信息条 -->
+    <view class="date-info-bar">
+      <view class="date-info-item">
+        <text class="date-info-label">日干支</text>
+        <text class="date-info-value">{{ dayAlmanac.sexagenary }}</text>
       </view>
-      <view class="overview-row">
-        <text class="overview-label">今日特质</text>
-        <text class="overview-value">{{ dayAlmanac.trait }}</text>
+      <view class="date-info-item">
+        <text class="date-info-label">农历</text>
+        <text class="date-info-value date-info-lunar">{{ dayAlmanac.lunarText }}</text>
       </view>
-      <view class="overview-row">
-        <text class="overview-label">今日指引</text>
-        <text class="overview-guide">{{ dayAlmanac.guide }}</text>
-      </view>
-    </view>
-
-    <!-- 宜忌概要 -->
-    <view class="panel advice-panel">
-      <view class="advice-row">
-        <text class="advice-mark advice-good">宜</text>
-        <text class="advice-text">{{ dayAlmanac.suitable.join(' · ') }}</text>
-      </view>
-      <view class="advice-row">
-        <text class="advice-mark advice-bad">忌</text>
-        <text class="advice-text">{{ dayAlmanac.avoid.join(' · ') }}</text>
+      <view class="date-info-item">
+        <text class="date-info-label">冲煞</text>
+        <text class="date-info-value date-info-clash">{{ dayAlmanac.clash }}</text>
       </view>
     </view>
 
-    <!-- 吉凶时辰 -->
+    <!-- 黄历日运：今→悟 -->
+    <view class="panel reading-card">
+      <view class="reading-header">
+        <text class="reading-title">今日 · {{ dayAlmanac.keyword }}</text>
+        <text class="reading-sub">{{ dayAlmanac.trait }}</text>
+      </view>
+      <view class="reading-body">
+        <view class="reading-layer">
+          <text class="reading-label-modern">今</text>
+          <text class="reading-text-modern">{{ dayAlmanac.guide }}</text>
+        </view>
+        <view v-if="todayInsight" class="reading-layer">
+          <text class="reading-label-insight">悟</text>
+          <text class="reading-text-insight">{{ todayInsight }}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 宜忌：左古右今 -->
+    <view class="panel advice-card">
+      <view class="advice-section">
+        <view class="advice-row">
+          <text class="advice-mark advice-good">宜</text>
+          <view class="advice-content">
+            <text class="advice-ancient">{{ traditionalSuitable.join(' · ') }}</text>
+            <view class="advice-arrow">↓ 现代解读 ↓</view>
+            <text class="advice-modern">{{ modernSuitable.join(' · ') }}</text>
+          </view>
+        </view>
+        <view class="advice-row">
+          <text class="advice-mark advice-bad">忌</text>
+          <view class="advice-content">
+            <text class="advice-ancient">{{ traditionalAvoid.join(' · ') }}</text>
+            <view class="advice-arrow">↓ 现代解读 ↓</view>
+            <text class="advice-modern">{{ modernAvoid.join(' · ') }}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 吉神凶神：左古右今 -->
+    <view class="panel god-card">
+      <view class="god-row">
+        <text class="god-label god-good">吉神</text>
+        <view class="god-content">
+          <text class="god-ancient">{{ dayAlmanac.luckyGods.join(' · ') }}</text>
+          <text class="god-modern">{{ luckyGodsModern }}</text>
+          <text class="god-trait">{{ luckyGodsTrait }}</text>
+        </view>
+      </view>
+      <view class="god-row">
+        <text class="god-label god-bad">凶神</text>
+        <view class="god-content">
+          <text class="god-ancient">{{ dayAlmanac.unluckyGods.join(' · ') }}</text>
+          <text class="god-modern">{{ unluckyGodsModern }}</text>
+          <text class="god-trait">{{ unluckyGodsTrait }}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 当前时辰高亮 -->
+    <view v-if="currentHour" class="panel current-hour-card">
+      <view class="current-hour-head">
+        <view class="current-hour-left">
+          <text class="current-hour-name">{{ currentHour.branch.name }}</text>
+          <text class="current-hour-time">{{ currentHour.branch.range }}</text>
+        </view>
+        <view class="current-hour-right">
+          <text class="current-hour-star">{{ currentHour.star }}</text>
+          <text class="current-hour-level" :class="currentHour.level === 'good' ? 'level-good' : currentHour.level === 'bad' ? 'level-bad' : 'level-neutral'">{{ currentHour.levelText }}</text>
+        </view>
+      </view>
+      <view class="current-hour-keyword">
+        <text class="current-hour-kw-text">{{ currentHour.keyword }}</text>
+        <text class="current-hour-trait-text">{{ currentHour.trait }}</text>
+      </view>
+      <view class="reading-body">
+        <view class="reading-layer">
+          <text class="reading-label-modern">今</text>
+          <text class="reading-text-modern">{{ currentHour.guide }}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 时辰一览 -->
     <view class="section-title">
       <text>时辰吉凶</text>
     </view>
     <view class="hour-tags">
-      <view v-for="h in goodHours" :key="h.branch.id" class="hour-tag hour-tag-good">
-        <text>{{ h.branch.name }}</text>
+      <view v-for="h in dayAlmanac.hours" :key="h.branch.id" class="hour-tag" :class="h.level === 'good' ? 'hour-tag-good' : h.level === 'bad' ? 'hour-tag-bad' : 'hour-tag-neutral'" @tap="">
+        <text class="hour-tag-name">{{ h.branch.name }}</text>
+        <text class="hour-tag-star">{{ h.star }}</text>
       </view>
-      <view v-for="h in badHours" :key="h.branch.id" class="hour-tag hour-tag-bad">
-        <text>{{ h.branch.name }}</text>
+    </view>
+
+    <!-- 七十二候 -->
+    <view v-if="periodData" class="panel reading-card">
+      <view class="reading-header">
+        <text class="reading-title">七十二候 · {{ periodData.name }}</text>
+        <text class="reading-sub">{{ periodData.solarTerm }}</text>
+      </view>
+      <view class="reading-body">
+        <view class="reading-layer">
+          <text class="reading-label-ancient">古</text>
+          <text class="reading-text-ancient">{{ periodData.ancient }}</text>
+        </view>
+        <view class="reading-layer">
+          <text class="reading-label-modern">今</text>
+          <text class="reading-text-modern">{{ periodData.modern }}</text>
+        </view>
+        <view class="reading-layer">
+          <text class="reading-label-insight">悟</text>
+          <text class="reading-text-insight">{{ periodData.insight }}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 月相禅意 -->
+    <view v-if="moonPhase" class="panel reading-card">
+      <view class="reading-header">
+        <text class="reading-title">月相 · {{ moonPhase.phaseEmoji }} {{ moonPhase.phaseName }}</text>
+        <text class="reading-sub">亮度 {{ moonPhase.illumination }}%</text>
+      </view>
+      <view class="reading-body">
+        <view class="reading-layer">
+          <text class="reading-label-ancient">古</text>
+          <text class="reading-text-ancient">{{ todayAncient }}</text>
+        </view>
+        <view class="reading-layer">
+          <text class="reading-label-modern">今</text>
+          <text class="reading-text-modern">{{ todayModern }}</text>
+        </view>
+        <view class="reading-layer">
+          <text class="reading-label-insight">悟</text>
+          <text class="reading-text-insight">{{ todayInsight }}</text>
+        </view>
+      </view>
+      <!-- 月相宜忌 -->
+      <view class="moon-suitable">
+        <view class="moon-suit-row">
+          <text class="moon-suit-label">适宜</text>
+          <text class="moon-suit-text moon-suit-good">{{ moonPhase.suitable.join(' · ') }}</text>
+        </view>
+        <view class="moon-suit-row">
+          <text class="moon-suit-label">避免</text>
+          <text class="moon-suit-text moon-suit-bad">{{ moonPhase.avoid.join(' · ') }}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 数九三伏 -->
+    <view v-if="seasonSpecial" class="panel reading-card">
+      <view class="reading-header">
+        <text class="reading-title">{{ seasonTitle }}</text>
+      </view>
+      <view class="reading-body">
+        <view class="reading-layer">
+          <text class="reading-label-ancient">古</text>
+          <text class="reading-text-ancient">{{ seasonSpecial.data.ancient }}</text>
+        </view>
+        <view class="reading-layer">
+          <text class="reading-label-modern">今</text>
+          <text class="reading-text-modern">{{ seasonSpecial.data.modern }}</text>
+        </view>
+        <view class="reading-layer">
+          <text class="reading-label-insight">悟</text>
+          <text class="reading-text-insight">{{ seasonSpecial.data.insight }}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 彭祖百忌 -->
+    <view class="panel pengzu-card">
+      <view class="reading-header">
+        <text class="reading-title">彭祖百忌</text>
+      </view>
+      <view class="pengzu-body">
+        <text class="pengzu-text">{{ dayAlmanac.pengzu }}</text>
       </view>
     </view>
 
     <!-- 星座运势分割线 -->
     <view class="section-title section-divider">
       <text>{{ selectedSign ? selectedSign.name + '运势' : '星座运势' }}</text>
-      <button v-if="selectedSign && !isChoosing" class="switch-sign-btn" @tap="toggleChooser">切换</button>
+      <view v-if="selectedSign && !isChoosing" class="switch-sign-btn" @tap="toggleChooser">
+        <text>切换</text>
+      </view>
     </view>
 
     <!-- 星座选择器 -->
-    <view v-if="isChoosing" class="sign-grid">
+    <view v-if="isChoosing" class="zodiac-choose">
       <picker
-        class="birthday-picker sign-picker"
         mode="date"
         :value="birthdayPickerValue"
         start="1900-01-01"
@@ -311,11 +485,13 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
         </view>
       </picker>
 
-      <button v-for="sign in ZODIAC_SIGNS" :key="sign.id" class="panel sign-cell" @tap="selectZodiac(sign.id)">
-        <text class="sign-symbol">{{ sign.symbol }}</text>
-        <text class="sign-name">{{ sign.name.replace('座', '') }}</text>
-        <text class="sign-range">{{ sign.range }}</text>
-      </button>
+      <view class="sign-grid">
+        <view v-for="sign in ZODIAC_SIGNS" :key="sign.id" class="panel sign-cell" @tap="selectZodiac(sign.id)">
+          <text class="sign-symbol">{{ sign.symbol }}</text>
+          <text class="sign-name">{{ sign.name.replace('座', '') }}</text>
+          <text class="sign-range">{{ sign.range }}</text>
+        </view>
+      </view>
     </view>
 
     <!-- 星座运势展示 -->
@@ -324,37 +500,49 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
         <view class="fortune-symbol-wrap">
           <text class="fortune-symbol">{{ fortune.sign.symbol }}</text>
         </view>
-        <text class="fortune-date">{{ dateText }}</text>
         <text class="fortune-name">{{ fortune.sign.name }}</text>
         <text class="fortune-range">{{ fortune.sign.range }}</text>
         <view class="keyword-chip">
-          <text>关键词</text>
           <text>{{ fortune.keyword }}</text>
         </view>
       </view>
 
       <view class="fortune-meta">
         <text class="cache-pill" :class="cacheStatusClass">{{ isLoading ? '更新中...' : cacheStatusText }}</text>
-        <button class="refresh-button" @tap="refreshFortune">刷新</button>
+        <view class="refresh-btn" @tap="refreshFortune"><text>刷新</text></view>
       </view>
 
       <view v-if="errorText" class="error-banner">
         <text>{{ errorText }}</text>
       </view>
 
-      <view class="panel score-panel">
-        <view>
+      <!-- 综合运势 -->
+      <view class="panel score-card">
+        <view class="score-left">
           <text class="score-label">综合运势</text>
           <text class="score-stars">{{ fortune.stars }}</text>
         </view>
         <text class="score-number">{{ fortune.score }}%</text>
       </view>
 
-      <view class="panel summary-panel">
-        <text class="summary-title">今日核心提示</text>
-        <text class="summary-copy">{{ fortune.summary }}</text>
+      <!-- 今日核心提示：今→忌 -->
+      <view class="panel reading-card">
+        <view class="reading-header">
+          <text class="reading-title">今日提示</text>
+        </view>
+        <view class="reading-body">
+          <view class="reading-layer">
+            <text class="reading-label-modern">今</text>
+            <text class="reading-text-modern">{{ fortune.summary }}</text>
+          </view>
+          <view v-if="fortune.caution" class="reading-layer">
+            <text class="reading-label-ancient">忌</text>
+            <text class="reading-text-ancient">{{ fortune.caution }}</text>
+          </view>
+        </view>
       </view>
 
+      <!-- 五项运势 -->
       <view class="fortune-list">
         <view v-for="item in fortuneDetails" :key="item.id" class="fortune-item">
           <view class="fortune-item-head">
@@ -368,25 +556,15 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
         </view>
       </view>
 
-      <view class="panel lucky-panel">
+      <!-- 幸运信息 -->
+      <view class="panel lucky-card">
         <view v-for="item in luckyItems" :key="item.label" class="lucky-item">
           <text class="lucky-label">{{ item.label }}</text>
           <text class="lucky-value">{{ item.value }}</text>
         </view>
       </view>
 
-      <view class="panel caution-panel">
-        <text class="caution-label">今日提醒</text>
-        <text class="caution-copy">{{ fortune.caution }}</text>
-      </view>
-
-      <view v-if="todayInsight" class="panel insight-panel">
-        <text class="insight-label">今日一悟</text>
-        <text class="insight-copy">{{ todayInsight }}</text>
-      </view>
-
       <picker
-        class="birthday-picker"
         mode="date"
         :value="birthdayPickerValue"
         start="1900-01-01"
@@ -435,64 +613,165 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
   font-size: 22rpx;
 }
 
-/* Overview */
-.overview-panel {
+/* ===== Date info bar ===== */
+.date-info-bar {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  margin-bottom: 20rpx;
+  padding: 0 4rpx;
+  border-bottom: 1rpx solid var(--gs-line);
+}
+
+.date-info-item {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 16rpx;
-  padding: 24rpx;
-  margin-bottom: 18rpx;
+  align-items: center;
+  gap: 4rpx;
+  padding: 16rpx 0;
+  border-right: 1rpx solid var(--gs-line);
 }
 
-.overview-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 16rpx;
+.date-info-item:last-child {
+  border-right: none;
 }
 
-.overview-label {
-  flex: 0 0 auto;
+.date-info-label {
   color: var(--gs-muted);
-  font-size: 24rpx;
-  font-weight: 800;
-  min-width: 140rpx;
+  font-size: 18rpx;
+  font-weight: 700;
 }
 
-.overview-keyword {
-  color: var(--gs-gold);
+.date-info-value {
+  color: var(--gs-ink);
+  font-size: 24rpx;
+  font-weight: 900;
+}
+
+.date-info-lunar {
+  font-size: 20rpx;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.date-info-clash {
+  color: var(--gs-red);
+  font-size: 20rpx;
+}
+
+/* ===== Reading card (古→今→悟) ===== */
+.reading-card {
+  padding: 24rpx;
+}
+
+.reading-header {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 12rpx;
+  margin-bottom: 16rpx;
+}
+
+.reading-title {
+  color: var(--gs-ink);
   font-size: 28rpx;
   font-weight: 900;
 }
 
-.overview-value {
-  color: var(--gs-ink);
-  font-size: 26rpx;
+.reading-sub {
+  color: var(--gs-muted);
+  font-size: 22rpx;
   font-weight: 700;
 }
 
-.overview-guide {
-  color: var(--gs-ink);
-  font-size: 26rpx;
+.reading-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.reading-layer {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12rpx;
+}
+
+.reading-label-ancient {
+  flex: none;
+  width: 40rpx;
+  padding: 2rpx 0;
+  color: var(--gs-muted);
+  font-size: 18rpx;
+  font-weight: 700;
+  text-align: center;
+  border-bottom: 2rpx solid var(--gs-line);
+}
+
+.reading-label-modern {
+  flex: none;
+  width: 40rpx;
+  padding: 2rpx 0;
+  color: var(--gs-blue);
+  font-size: 18rpx;
+  font-weight: 700;
+  text-align: center;
+  border-bottom: 2rpx solid var(--gs-blue);
+}
+
+.reading-label-insight {
+  flex: none;
+  width: 40rpx;
+  padding: 2rpx 0;
+  color: var(--gs-gold);
+  font-size: 18rpx;
+  font-weight: 700;
+  text-align: center;
+  border-bottom: 2rpx solid var(--gs-gold);
+}
+
+.reading-text-ancient {
+  color: var(--gs-muted);
+  font-size: 24rpx;
+  font-weight: 700;
   line-height: 1.5;
 }
 
-/* Advice */
-.advice-panel {
+.reading-text-modern {
+  color: var(--gs-ink);
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.reading-text-insight {
+  color: var(--gs-gold);
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+/* ===== Advice card (左古右今) ===== */
+.advice-card {
+  padding: 24rpx;
+}
+
+.advice-section {
   display: flex;
   flex-direction: column;
-  gap: 14rpx;
-  padding: 24rpx;
-  margin-bottom: 18rpx;
+  gap: 16rpx;
 }
 
 .advice-row {
   display: flex;
+  flex-direction: row;
   align-items: flex-start;
   gap: 14rpx;
 }
 
 .advice-mark {
-  flex: 0 0 auto;
+  flex: none;
   width: 44rpx;
   height: 44rpx;
   border-radius: 50%;
@@ -510,31 +789,221 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
   background: var(--gs-red);
 }
 
-.advice-text {
+.advice-content {
   flex: 1;
-  color: var(--gs-ink);
-  font-size: 26rpx;
-  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
 }
 
-/* Hour tags */
+.advice-ancient {
+  color: var(--gs-muted);
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.advice-arrow {
+  color: var(--gs-line);
+  font-size: 18rpx;
+  font-weight: 700;
+}
+
+.advice-modern {
+  color: var(--gs-ink);
+  font-size: 24rpx;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+/* ===== God card (吉神凶神) ===== */
+.god-card {
+  padding: 24rpx;
+}
+
+.god-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 14rpx;
+  margin-bottom: 16rpx;
+}
+
+.god-row:last-child {
+  margin-bottom: 0;
+}
+
+.god-label {
+  flex: none;
+  width: 56rpx;
+  height: 36rpx;
+  border-radius: 8rpx;
+  color: #fff;
+  font-size: 18rpx;
+  font-weight: 800;
+  line-height: 36rpx;
+  text-align: center;
+}
+
+.god-good {
+  background: var(--gs-green);
+}
+
+.god-bad {
+  background: var(--gs-red);
+}
+
+.god-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.god-ancient {
+  color: var(--gs-muted);
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.god-modern {
+  color: var(--gs-ink);
+  font-size: 24rpx;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.god-trait {
+  color: var(--gs-blue);
+  font-size: 20rpx;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/* ===== Current hour card ===== */
+.current-hour-card {
+  padding: 24rpx;
+  border-left: 6rpx solid var(--gs-gold);
+}
+
+.current-hour-head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+
+.current-hour-left {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 12rpx;
+}
+
+.current-hour-name {
+  color: var(--gs-ink);
+  font-size: 36rpx;
+  font-weight: 900;
+}
+
+.current-hour-time {
+  color: var(--gs-muted);
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.current-hour-right {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.current-hour-star {
+  color: var(--gs-gold);
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.current-hour-level {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40rpx;
+  height: 36rpx;
+  padding: 0 12rpx;
+  border-radius: 8rpx;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 800;
+}
+
+.level-good {
+  background: var(--gs-green);
+}
+
+.level-bad {
+  background: var(--gs-red);
+}
+
+.level-neutral {
+  background: var(--gs-muted);
+}
+
+.current-hour-keyword {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 14rpx;
+  padding: 10rpx 16rpx;
+  border-radius: 10rpx;
+  background: rgba(199, 141, 42, 0.08);
+}
+
+.current-hour-kw-text {
+  color: var(--gs-gold);
+  font-size: 24rpx;
+  font-weight: 900;
+}
+
+.current-hour-trait-text {
+  color: var(--gs-muted);
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+/* ===== Hour tags ===== */
 .hour-tags {
   display: flex;
+  flex-direction: row;
   flex-wrap: wrap;
-  gap: 12rpx;
+  gap: 10rpx;
   margin-bottom: 24rpx;
 }
 
 .hour-tag {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-width: 80rpx;
-  height: 56rpx;
-  padding: 0 16rpx;
+  min-width: 76rpx;
+  padding: 8rpx 10rpx;
   border-radius: 12rpx;
-  font-size: 24rpx;
+  gap: 2rpx;
+}
+
+.hour-tag-name {
+  font-size: 22rpx;
   font-weight: 800;
+}
+
+.hour-tag-star {
+  font-size: 14rpx;
+  font-weight: 700;
+  opacity: 0.72;
 }
 
 .hour-tag-good {
@@ -549,9 +1018,74 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
   border: 1rpx solid rgba(184, 74, 63, 0.18);
 }
 
+.hour-tag-neutral {
+  color: var(--gs-muted);
+  background: rgba(120, 109, 96, 0.08);
+  border: 1rpx solid var(--gs-line);
+}
+
+/* ===== Moon suitable ===== */
+.moon-suitable {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  margin-top: 16rpx;
+  padding-top: 14rpx;
+  border-top: 1rpx solid var(--gs-line);
+}
+
+.moon-suit-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12rpx;
+}
+
+.moon-suit-label {
+  flex: none;
+  width: 56rpx;
+  color: var(--gs-muted);
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+.moon-suit-text {
+  flex: 1;
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.moon-suit-good {
+  color: var(--gs-green);
+}
+
+.moon-suit-bad {
+  color: var(--gs-red);
+}
+
+/* ===== Pengzu card ===== */
+.pengzu-card {
+  padding: 24rpx;
+}
+
+.pengzu-body {
+  padding: 14rpx 16rpx;
+  border-radius: 10rpx;
+  background: rgba(120, 109, 96, 0.06);
+}
+
+.pengzu-text {
+  color: var(--gs-muted);
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
 /* Section divider */
 .section-divider {
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
 }
@@ -560,56 +1094,57 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
   padding: 6rpx 20rpx;
   border: 1rpx solid var(--gs-line);
   border-radius: 999rpx;
-  color: var(--gs-blue);
   background: transparent;
+}
+
+.switch-sign-btn text {
+  color: var(--gs-blue);
   font-size: 22rpx;
   font-weight: 700;
 }
 
-/* Sign grid */
-.sign-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16rpx;
+/* Zodiac choose */
+.zodiac-choose {
   margin-bottom: 24rpx;
 }
 
-.sign-picker {
-  grid-column: 1 / -1;
+.sign-grid {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 16rpx;
 }
 
 .sign-cell {
+  width: calc(25% - 9rpx);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 188rpx;
-  padding: 18rpx 10rpx;
-  color: var(--gs-ink);
-}
-
-.sign-symbol,
-.sign-name,
-.sign-range {
-  display: block;
+  padding: 16rpx 8rpx;
 }
 
 .sign-symbol {
+  display: block;
   color: var(--gs-gold);
-  font-size: 48rpx;
+  font-size: 40rpx;
   line-height: 1;
 }
 
 .sign-name {
-  margin-top: 12rpx;
-  font-size: 28rpx;
+  display: block;
+  margin-top: 8rpx;
+  color: var(--gs-ink);
+  font-size: 22rpx;
   font-weight: 800;
 }
 
 .sign-range {
-  margin-top: 8rpx;
+  display: block;
+  margin-top: 4rpx;
   color: var(--gs-muted);
-  font-size: 18rpx;
+  font-size: 16rpx;
   line-height: 1.25;
   text-align: center;
 }
@@ -623,25 +1158,77 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 16rpx 0 28rpx;
+  padding: 16rpx 0 24rpx;
+}
+
+.fortune-symbol-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 112rpx;
+  height: 112rpx;
+  border: 1rpx solid rgba(199, 141, 42, 0.28);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(255, 250, 240, 0.95), rgba(245, 222, 182, 0.54)),
+    linear-gradient(180deg, rgba(199, 141, 42, 0.16), rgba(49, 93, 118, 0.06));
+}
+
+.fortune-symbol {
+  color: var(--gs-gold);
+  font-size: 68rpx;
+  line-height: 1;
+}
+
+.fortune-name {
+  display: block;
+  margin-top: 12rpx;
+  color: var(--gs-ink);
+  font-size: 36rpx;
+  font-weight: 900;
+}
+
+.fortune-range {
+  display: block;
+  margin-top: 6rpx;
+  color: var(--gs-muted);
+  font-size: 22rpx;
+}
+
+.keyword-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  min-height: 44rpx;
+  margin-top: 14rpx;
+  padding: 0 20rpx;
+  border: 1rpx solid rgba(199, 141, 42, 0.28);
+  border-radius: 999rpx;
+  color: #6f4510;
+  background: rgba(245, 215, 110, 0.24);
+  font-size: 22rpx;
+  font-weight: 800;
+  line-height: 44rpx;
 }
 
 .fortune-meta {
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
   gap: 18rpx;
-  margin-bottom: 18rpx;
+  margin-bottom: 16rpx;
 }
 
 .cache-pill {
   display: inline-flex;
   align-items: center;
-  min-height: 48rpx;
-  padding: 0 18rpx;
+  min-height: 44rpx;
+  padding: 0 16rpx;
   border-radius: 999rpx;
-  font-size: 22rpx;
-  line-height: 48rpx;
+  font-size: 20rpx;
+  line-height: 44rpx;
 }
 
 .cache-pill-fresh {
@@ -659,183 +1246,98 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
   background: rgba(184, 74, 63, 0.12);
 }
 
-.refresh-button {
-  flex: 0 0 auto;
-  min-width: 112rpx;
-  min-height: 52rpx;
-  padding: 0 22rpx;
-  border: 1rpx solid var(--gs-line);
-  border-radius: 999rpx;
-  color: var(--gs-blue);
-  background: rgba(255, 250, 240, 0.82);
-  font-size: 22rpx;
-  line-height: 52rpx;
-}
-
-.fortune-symbol,
-.fortune-date,
-.fortune-name,
-.fortune-range {
-  display: block;
-}
-
-.fortune-symbol-wrap {
+.refresh-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 128rpx;
-  height: 128rpx;
-  border: 1rpx solid rgba(199, 141, 42, 0.28);
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 38%, rgba(255, 250, 240, 0.95), rgba(245, 222, 182, 0.54)),
-    linear-gradient(180deg, rgba(199, 141, 42, 0.16), rgba(49, 93, 118, 0.06));
+  min-height: 44rpx;
+  padding: 0 18rpx;
+  border: 1rpx solid var(--gs-line);
+  border-radius: 999rpx;
+  background: transparent;
 }
 
-.fortune-symbol {
-  color: var(--gs-gold);
-  font-size: 78rpx;
-  line-height: 1;
+.refresh-btn text {
+  color: var(--gs-blue);
+  font-size: 20rpx;
+  font-weight: 700;
 }
 
-.fortune-date {
-  margin-top: 16rpx;
+.error-banner {
+  margin-bottom: 16rpx;
+  padding: 16rpx 20rpx;
+  border: 1rpx solid rgba(184, 74, 63, 0.18);
+  border-radius: 14rpx;
+  color: #8f2e28;
+  background: rgba(184, 74, 63, 0.08);
+  font-size: 22rpx;
+  line-height: 1.45;
+}
+
+.score-card {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx;
+}
+
+.score-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.score-label {
   color: var(--gs-muted);
   font-size: 22rpx;
   font-weight: 700;
 }
 
-.fortune-name {
-  margin-top: 8rpx;
-  color: var(--gs-ink);
-  font-size: 40rpx;
-  font-weight: 900;
-}
-
-.fortune-range {
-  margin-top: 8rpx;
-  color: var(--gs-muted);
-  font-size: 24rpx;
-}
-
-.keyword-chip {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  min-height: 50rpx;
-  margin-top: 18rpx;
-  padding: 0 20rpx;
-  border: 1rpx solid rgba(199, 141, 42, 0.28);
-  border-radius: 999rpx;
-  color: #6f4510;
-  background: rgba(245, 215, 110, 0.24);
-  font-size: 22rpx;
-  font-weight: 800;
-  line-height: 50rpx;
-}
-
-.error-banner {
-  margin-bottom: 18rpx;
-  padding: 18rpx 22rpx;
-  border: 1rpx solid rgba(184, 74, 63, 0.18);
-  border-radius: 14rpx;
-  color: #8f2e28;
-  background: rgba(184, 74, 63, 0.08);
-  font-size: 23rpx;
-  line-height: 1.45;
-}
-
-.score-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 28rpx;
-}
-
-.score-label,
-.score-stars,
-.score-number {
-  display: block;
-}
-
-.score-label {
-  color: var(--gs-muted);
-  font-size: 24rpx;
-}
-
 .score-stars {
-  margin-top: 8rpx;
   color: var(--gs-gold);
-  font-size: 34rpx;
+  font-size: 32rpx;
 }
 
 .score-number {
   color: var(--gs-blue);
-  font-size: 48rpx;
+  font-size: 44rpx;
   font-weight: 900;
-}
-
-.summary-panel {
-  margin-top: 20rpx;
-  padding: 28rpx;
-}
-
-.summary-title,
-.summary-copy {
-  display: block;
-}
-
-.summary-title {
-  color: var(--gs-blue);
-  font-size: 26rpx;
-  font-weight: 800;
-}
-
-.summary-copy {
-  margin-top: 14rpx;
-  color: var(--gs-ink);
-  font-size: 28rpx;
-  line-height: 1.55;
 }
 
 .fortune-list {
-  margin-top: 28rpx;
+  margin-top: 20rpx;
 }
 
 .fortune-item {
-  padding: 24rpx 4rpx;
+  padding: 20rpx 4rpx;
   border-bottom: 1rpx solid var(--gs-line);
 }
 
 .fortune-item-head {
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
   gap: 18rpx;
 }
 
-.fortune-item-title,
-.fortune-item-score,
-.fortune-item-copy {
-  display: block;
-}
-
 .fortune-item-title {
   color: var(--gs-ink);
-  font-size: 28rpx;
+  font-size: 26rpx;
   font-weight: 800;
 }
 
 .fortune-item-score {
   flex: 0 0 auto;
   color: var(--gs-blue);
-  font-size: 24rpx;
+  font-size: 22rpx;
   font-weight: 900;
 }
 
 .fortune-meter {
-  height: 10rpx;
-  margin-top: 16rpx;
+  height: 8rpx;
+  margin-top: 12rpx;
   overflow: hidden;
   border-radius: 999rpx;
   background: rgba(223, 210, 191, 0.7);
@@ -848,120 +1350,71 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
 }
 
 .fortune-item-copy {
-  margin-top: 14rpx;
+  display: block;
+  margin-top: 10rpx;
   color: var(--gs-muted);
-  font-size: 25rpx;
+  font-size: 22rpx;
   line-height: 1.5;
 }
 
-.lucky-panel {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 18rpx 12rpx;
-  margin-top: 28rpx;
-  padding: 24rpx;
+.lucky-card {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16rpx 12rpx;
+  margin-top: 20rpx;
+  padding: 20rpx;
 }
 
 .lucky-item {
+  width: calc(50% - 6rpx);
   min-width: 0;
 }
 
-.lucky-label,
-.lucky-value,
-.caution-label,
-.caution-copy,
-.insight-label,
-.insight-copy,
-.birthday-picker-label,
-.birthday-picker-value {
-  display: block;
-}
-
 .lucky-label {
+  display: block;
   color: var(--gs-muted);
-  font-size: 22rpx;
+  font-size: 20rpx;
 }
 
 .lucky-value {
-  margin-top: 8rpx;
+  display: block;
+  margin-top: 6rpx;
   color: var(--gs-ink);
-  font-size: 28rpx;
+  font-size: 26rpx;
   font-weight: 900;
   line-height: 1.25;
 }
 
-.caution-panel {
-  margin-top: 20rpx;
-  padding: 24rpx;
-}
-
-.caution-label {
-  color: var(--gs-red);
-  font-size: 24rpx;
-  font-weight: 900;
-}
-
-.caution-copy {
-  margin-top: 10rpx;
-  color: var(--gs-ink);
-  font-size: 26rpx;
-  line-height: 1.55;
-}
-
-.insight-panel {
-  margin-top: 20rpx;
-  padding: 24rpx;
-}
-
-.insight-label {
-  color: var(--gs-blue);
-  font-size: 24rpx;
-  font-weight: 900;
-}
-
-.insight-copy {
-  margin-top: 12rpx;
-  padding: 18rpx 20rpx;
-  border-left: 4rpx solid var(--gs-gold);
-  border-radius: 0 12rpx 12rpx 0;
-  color: var(--gs-ink);
-  background: rgba(199, 141, 42, 0.08);
-  font-size: 26rpx;
-  font-weight: 600;
-  line-height: 1.6;
-}
-
-.birthday-picker {
-  display: block;
-  margin-top: 26rpx;
-}
-
 .birthday-picker-inner {
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 24rpx 26rpx;
+  padding: 22rpx 24rpx;
   color: var(--gs-blue);
   text-align: left;
 }
 
 .birthday-picker-label {
+  display: block;
   color: var(--gs-muted);
   font-size: 22rpx;
   font-weight: 700;
 }
 
 .birthday-picker-value {
-  margin-top: 6rpx;
+  display: block;
+  margin-top: 4rpx;
   color: var(--gs-blue);
-  font-size: 27rpx;
+  font-size: 26rpx;
   font-weight: 900;
 }
 
 .birthday-picker-arrow {
   color: var(--gs-blue);
-  font-size: 36rpx;
+  font-size: 32rpx;
   line-height: 1;
 }
 

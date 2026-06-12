@@ -302,6 +302,66 @@ const DEFAULT_ALMANAC_MAPPINGS: AlmanacMappingConfig = {
   defaultAdvice: DEFAULT_ADVICE
 }
 
+// 吉神凶神现代解读
+const GOD_MODERN: Record<string, { keyword: string; trait: string }> = {
+  // 吉神
+  '天德': { keyword: '天时护佑', trait: '逢凶化吉' },
+  '月德': { keyword: '贵人和合', trait: '人际和谐' },
+  '天恩': { keyword: '意外之喜', trait: '好事将近' },
+  '母仓': { keyword: '根基稳固', trait: '后勤有力' },
+  '生气': { keyword: '生机勃发', trait: '适合创新' },
+  '益后': { keyword: '后劲充足', trait: '长远有利' },
+  '青龙': { keyword: '气势正旺', trait: '适合展示' },
+  '福德': { keyword: '福泽深厚', trait: '适合祈福' },
+  '驿马': { keyword: '主动出击', trait: '行动有力' },
+  '金匮': { keyword: '资源入库', trait: '适合盘点' },
+  '明堂': { keyword: '光明正大', trait: '公开推进' },
+  '三合': { keyword: '合作共赢', trait: '关系和顺' },
+  '天喜': { keyword: '喜事临门', trait: '心情愉悦' },
+  '司命': { keyword: '秩序井然', trait: '适合管理' },
+  '天贵': { keyword: '贵人提携', trait: '上运亨通' },
+  '天愿': { keyword: '心愿可期', trait: '所求易成' },
+  '敬安': { keyword: '安定祥和', trait: '宜守不宜攻' },
+  '吉期': { keyword: '吉时已到', trait: '适合决策' },
+  '五合': { keyword: '多方契合', trait: '适合合作' },
+  '时德': { keyword: '时运正佳', trait: '把握当下' },
+  '阳德': { keyword: '阳气充沛', trait: '适合开创' },
+  '福生': { keyword: '福气生发', trait: '适合积德' },
+  '四相': { keyword: '四方可依', trait: '助力充足' },
+  '续世': { keyword: '延续发展', trait: '适合深耕' },
+  '六仪': { keyword: '礼仪得当', trait: '适合正式场合' },
+  '不将': { keyword: '事无阻碍', trait: '推进顺利' },
+  '天乙贵人': { keyword: '贵人相助', trait: '人脉顺畅' },
+  '文昌': { keyword: '文思泉涌', trait: '头脑清晰' },
+  // 凶神
+  '五鬼': { keyword: '保持警惕', trait: '宜静不宜动' },
+  '大耗': { keyword: '守住边界', trait: '容易耗散' },
+  '劫煞': { keyword: '谨言慎行', trait: '风险较高' },
+  '天火': { keyword: '情绪管控', trait: '避免冲突' },
+  '月煞': { keyword: '人际缓和', trait: '避免争执' },
+  '血支': { keyword: '注意安全', trait: '小心外伤' },
+  '归忌': { keyword: '暂缓变动', trait: '守近为宜' },
+  '月建': { keyword: '基础动摇', trait: '稳守为上' },
+  '土府': { keyword: '根基受阻', trait: '不宜动土' },
+  '小耗': { keyword: '微有损耗', trait: '注意细节' },
+  '往亡': { keyword: '不宜远行', trait: '守近为宜' },
+  '死气': { keyword: '缺乏活力', trait: '宜静养' },
+  '天罡': { keyword: '压力较大', trait: '谨慎应对' },
+  '游祸': { keyword: '意外风险', trait: '多留缓冲' },
+  '天贼': { keyword: '谨防损失', trait: '看好财物' },
+  '血忌': { keyword: '健康注意', trait: '不宜手术' },
+  '地火': { keyword: '暗藏冲突', trait: '避免争执' },
+  '河魁': { keyword: '暗流涌动', trait: '小心行事' }
+}
+
+export function getGodKeyword(god: string): string {
+  return GOD_MODERN[god]?.keyword || god
+}
+
+export function getGodTrait(god: string): string {
+  return GOD_MODERN[god]?.trait || '审时度势'
+}
+
 let activeMappingConfig = DEFAULT_ALMANAC_MAPPINGS
 let hasHydratedMappingCache = false
 let termMappingCache: Record<string, ModernScenarioMapping> = {}
@@ -403,10 +463,10 @@ export function getDayAlmanac(input: Date | string = new Date()): DayAlmanac {
     weekdayText: getWeekdayText(date),
     lunarText: `${getSexagenaryYear(lunarDate.year)}年 ${getLunarMonthDayText(date, lunarDate)}`,
     festivalText: getCalendarFestivalText(date, lunarDate),
-    clash: `冲${ZODIACS[(lunarDate.day + 6) % 12]}`,
+    clash: `冲${lunar.getChongShengXiao()} 煞${lunar.getSha()}`,
     sexagenary: lunar.getDayInGanZhi(),
-    pengzu: '彭祖百忌',
-    luckyGods: ['天德', '月德'],
+    pengzu: `${lunar.getPengZuGan()} ${lunar.getPengZuZhi()}`,
+    luckyGods: lunar.getDayJiShen().slice(0, 6),
     unluckyGods: ['五鬼', '大耗'],
     traditional: traditionalSuitable,
     traditionalSuitable,

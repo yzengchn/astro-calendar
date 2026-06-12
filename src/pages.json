@@ -41,6 +41,13 @@
         "navigationBarTitleText": "日辰",
         "navigationStyle": "custom"
       }
+    },
+    {
+      "path": "pages/settings/index",
+      "style": {
+        "navigationBarTitleText": "设置",
+        "navigationStyle": "custom"
+      }
     }
   ],
   "tabBar": {
