@@ -66,6 +66,25 @@ const storedWeekFirst = getStorage<number>('week_first_day', 0)
 const weekFirstDay = ref<WeekFirstDay>([0, 1, 6].includes(storedWeekFirst) ? (storedWeekFirst as WeekFirstDay) : 0)
 const weekdayLabels = computed(() => getWeekdayLabels(weekFirstDay.value))
 
+const monthPickerValue = computed(() => `${currentYear.value}-${String(currentMonth.value).padStart(2, '0')}`)
+
+function onMonthPick(event: { detail?: { value?: string } }): void {
+  const value = event.detail?.value
+  if (!value) return
+  const [year, month] = value.split('-').map(Number)
+  if (!year || !month) return
+  currentYear.value = year
+  currentMonth.value = month
+  lightHaptic()
+  trackEvent('calendar_month_pick', { year, month })
+}
+
+function isWeekendIndex(index: number): boolean {
+  // weekdayLabels[i] corresponds to weekday (weekFirstDay + i) % 7
+  const weekday = (weekFirstDay.value + index) % 7
+  return weekday === 0 || weekday === 6
+}
+
 const DEFAULT_VISIBLE_MODULES = ['season_info', 'advice', 'current_hour', 'twelve_hours', 'zodiac_entry']
 const storedModules = getStorage<string[]>('home_layout_modules', DEFAULT_VISIBLE_MODULES)
 const homeVisibleModules = ref<string[]>(Array.isArray(storedModules) && storedModules.length > 0 ? storedModules : [...DEFAULT_VISIBLE_MODULES])
@@ -598,7 +617,12 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
     </view>
 
     <view class="monthbar">
-      <text class="topbar-date">{{ calendarTitle }}</text>
+      <picker mode="date" fields="month" :value="monthPickerValue" @change="onMonthPick">
+        <view class="monthbar-pick">
+          <text class="topbar-date">{{ calendarTitle }}</text>
+          <text class="monthbar-arrow">▾</text>
+        </view>
+      </picker>
     </view>
 
     <view v-if="selectedDay?.holidayName || selectedDay?.festival || selectedDay?.solarTerm" class="day-signal">
@@ -626,7 +650,7 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </view>
       <template v-else>
         <view v-if="calendarViewMode !== 'day'" class="weekday-row">
-          <text v-for="(label, i) in weekdayLabels" :key="i">{{ label }}</text>
+          <text v-for="(label, i) in weekdayLabels" :key="i" class="weekday-cell" :class="{ 'weekday-cell-weekend': isWeekendIndex(i) }">{{ label }}</text>
         </view>
         <view
           class="calendar-grid"
@@ -1045,6 +1069,22 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
   text-align: center;
 }
 
+.monthbar-pick {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6rpx;
+  padding: 8rpx 20rpx;
+  border-radius: 12rpx;
+  background: transparent;
+}
+
+.monthbar-arrow {
+  color: var(--gs-muted);
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
 .menu-trigger {
   position: relative;
   display: flex;
@@ -1119,6 +1159,9 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
 }
 
 .calendar-shell {
+  --calendar-weekend: #e4393c;
+  --calendar-weekend-muted: rgba(228, 57, 60, 0.32);
+
   margin-right: -10rpx;
   margin-left: -10rpx;
   padding: 20rpx 0 12rpx;
@@ -1139,6 +1182,15 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
   color: var(--gs-muted);
   font-size: 22rpx;
   text-align: center;
+}
+
+.weekday-cell {
+  padding: 8rpx 0;
+}
+
+.weekday-cell-weekend {
+  color: var(--calendar-weekend);
+  font-weight: 800;
 }
 
 .calendar-grid {
@@ -1242,8 +1294,18 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
   color: rgba(36, 31, 24, 0.34);
 }
 
-.date-cell-weekend:not(.date-cell-muted) .date-number {
-  color: var(--gs-red);
+.date-cell-weekend:not(.date-cell-muted):not(.date-cell-today):not(.date-cell-selected) {
+  background: rgba(255, 250, 240, 0.48);
+}
+
+.date-cell-weekend:not(.date-cell-muted):not(.date-cell-today):not(.date-cell-selected) .date-number,
+.date-cell-weekend:not(.date-cell-muted):not(.date-cell-today):not(.date-cell-selected) .date-lunar {
+  color: var(--calendar-weekend);
+}
+
+.date-cell-muted.date-cell-weekend .date-number,
+.date-cell-muted.date-cell-weekend .date-lunar {
+  color: var(--calendar-weekend-muted);
 }
 
 .date-cell-today {
