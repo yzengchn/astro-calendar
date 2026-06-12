@@ -1,0 +1,39 @@
+{
+  "name": "星运日历",
+  "appid": "__UNI__GUANSHI",
+  "description": "每天的日历、宜忌与运势指引",
+  "versionName": "0.1.0",
+  "versionCode": 1,
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3,
+    "splashscreen": {
+      "alwaysShowBeforeRender": false,
+      "waiting": true,
+      "autoclose": true,
+      "delay": 0
+    },
+    "distribute": {
+      "android": {
+        "minSdkVersion": 29,
+        "targetSdkVersion": 35,
+        "permissions": []
+      },
+      "ios": {
+        "deploymentTarget": "15.0"
+      }
+    }
+  },
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": true,
+      "es6": true,
+      "postcss": true,
+      "minified": true
+    },
+    "usingComponents": true
+  }
+}

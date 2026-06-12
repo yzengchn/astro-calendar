@@ -1,0 +1,45 @@
+{
+  "pages": [
+    {
+      "path": "pages/home/index",
+      "style": {
+        "navigationBarTitleText": "星运日历",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/day-detail/index",
+      "style": {
+        "navigationBarTitleText": "日辰",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/zodiac/index",
+      "style": {
+        "navigationBarTitleText": "星座指引",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/lucky-days/index",
+      "style": {
+        "navigationBarTitleText": "择吉日",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/bazi/index",
+      "style": {
+        "navigationBarTitleText": "个人八字",
+        "navigationStyle": "custom"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "星运日历",
+    "navigationBarBackgroundColor": "#f7f1e7",
+    "backgroundColor": "#f7f1e7"
+  }
+}
