@@ -41,6 +41,10 @@
 }
 
 .text-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 64rpx;
   min-height: 64rpx;
   padding: 0 22rpx;
   border: 1rpx solid var(--gs-line);
@@ -48,6 +52,7 @@
   color: var(--gs-blue);
   background: rgba(255, 250, 240, 0.8);
   font-size: 24rpx;
+  line-height: 1;
 }
 
 .section-title {
