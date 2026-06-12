@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { lightHaptic } from '@/services/platform'
 
 interface TabItem {
@@ -20,6 +21,13 @@ const tabs: TabItem[] = [
   { pagePath: '/pages/zodiac/index', text: '八字', icon: '☯' },
   { pagePath: '/pages/fortune/index', text: '运势', icon: '✨' }
 ]
+
+function hideNativeTabBar() {
+  uni.hideTabBar({ animation: false })
+}
+
+onMounted(hideNativeTabBar)
+onShow(hideNativeTabBar)
 
 function switchTab(index: number) {
   if (index === props.active) return
