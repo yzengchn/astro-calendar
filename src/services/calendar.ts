@@ -143,7 +143,11 @@ export function getMonthCalendar(year: number, month: number, selectedKey = getT
   const luckyMarkMap = getLuckyMarkMap()
   const days: CalendarDay[] = []
 
-  for (let index = 0; index < 42; index += 1) {
+  const minCells = startOffset + new Date(year, month, 0).getDate()
+  const rowCount = Math.ceil(minCells / 7)
+  const totalCells = rowCount <= 5 ? 35 : 42
+
+  for (let index = 0; index < totalCells; index += 1) {
     const current = new Date(startDate)
     current.setDate(startDate.getDate() + index)
     const dateKey = formatDateKey(current)
