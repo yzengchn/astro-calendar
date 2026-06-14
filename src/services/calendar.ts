@@ -135,7 +135,7 @@ export function getTodayKey(): DateKey {
   return formatDateKey(new Date())
 }
 
-export function getMonthCalendar(year: number, month: number, selectedKey = getTodayKey(), weekFirstDay: WeekFirstDay = 0): MonthCalendar {
+export function getMonthCalendar(year: number, month: number, selectedKey = getTodayKey(), weekFirstDay: WeekFirstDay = 1): MonthCalendar {
   const firstDay = new Date(year, month - 1, 1)
   const startOffset = (firstDay.getDay() - weekFirstDay + 7) % 7
   const startDate = new Date(year, month - 1, 1 - startOffset)

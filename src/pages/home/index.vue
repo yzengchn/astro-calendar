@@ -62,8 +62,8 @@ const activeInfoDetail = ref<InfoDetail | null>(null)
 const luckyMarksVersion = ref(0)
 
 // Settings (persisted, read on mount)
-const storedWeekFirst = getStorage<number>('week_first_day', 0)
-const weekFirstDay = ref<WeekFirstDay>([0, 1, 6].includes(storedWeekFirst) ? (storedWeekFirst as WeekFirstDay) : 0)
+const storedWeekFirst = getStorage<number>('week_first_day', 1)
+const weekFirstDay = ref<WeekFirstDay>([0, 1, 6].includes(storedWeekFirst) ? (storedWeekFirst as WeekFirstDay) : 1)
 const weekdayLabels = computed(() => getWeekdayLabels(weekFirstDay.value))
 
 const monthPickerValue = computed(() => `${currentYear.value}-${String(currentMonth.value).padStart(2, '0')}`)
@@ -234,8 +234,8 @@ onShow(() => {
   zodiacId.value = getStorage('user_zodiac_sign', null)
   luckyMarksVersion.value += 1 // refresh lucky marks from storage
   // Re-read settings in case they changed on settings page
-  const newWeekFirst = getStorage<number>('week_first_day', 0)
-  weekFirstDay.value = [0, 1, 6].includes(newWeekFirst) ? (newWeekFirst as WeekFirstDay) : 0
+  const newWeekFirst = getStorage<number>('week_first_day', 1)
+  weekFirstDay.value = [0, 1, 6].includes(newWeekFirst) ? (newWeekFirst as WeekFirstDay) : 1
   const newModules = getStorage<string[]>('home_layout_modules', DEFAULT_VISIBLE_MODULES)
   homeVisibleModules.value = Array.isArray(newModules) && newModules.length > 0 ? newModules : [...DEFAULT_VISIBLE_MODULES]
   const newTimeView = getStorage<string>('time_view_preference', 'timeline')

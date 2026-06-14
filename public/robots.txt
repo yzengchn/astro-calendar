@@ -1,0 +1,20 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /*.json$
+
+# Crawl-delay for specific bots
+User-agent: Baiduspider
+Crawl-delay: 1
+
+User-agent: Googlebot
+Crawl-delay: 0
+
+# Sitemap
+Sitemap: https://time.neocockpit.cn/sitemap.xml
+
+# Block specific paths
+Disallow: /src/
+Disallow: /node_modules/
+Disallow: /*.map$

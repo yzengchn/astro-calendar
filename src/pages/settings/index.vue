@@ -43,8 +43,8 @@ const TIME_VIEW_OPTIONS: TimeViewOption[] = [
 ]
 
 // --- State ---
-const storedWeekFirst = getStorage<number>('week_first_day', 0)
-const weekFirstDay = ref<WeekFirstDay>([0, 1, 6].includes(storedWeekFirst) ? (storedWeekFirst as WeekFirstDay) : 0)
+const storedWeekFirst = getStorage<number>('week_first_day', 1)
+const weekFirstDay = ref<WeekFirstDay>([0, 1, 6].includes(storedWeekFirst) ? (storedWeekFirst as WeekFirstDay) : 1)
 
 const storedHolidayUpdate = getStorage<boolean>('holiday_auto_update', true)
 const holidayAutoUpdate = ref(storedHolidayUpdate !== false)

@@ -7,6 +7,8 @@ interface TabItem {
   pagePath: string
   text: string
   icon: string
+  iconPath?: string
+  selectedIconPath?: string
   isCenter?: boolean
 }
 
@@ -17,7 +19,14 @@ const props = defineProps<{
 const tabs: TabItem[] = [
   { pagePath: '/pages/lucky-days/index', text: '择日', icon: '📆' },
   { pagePath: '/pages/blessing/index', text: '祈福', icon: '🏮' },
-  { pagePath: '/pages/home/index', text: '日历', icon: '📅', isCenter: true },
+  {
+    pagePath: '/pages/home/index',
+    text: '日历',
+    icon: '📅',
+    iconPath: '/static/tabbar/calendar-selected.png',
+    selectedIconPath: '/static/tabbar/calendar-selected.png',
+    isCenter: true
+  },
   { pagePath: '/pages/zodiac/index', text: '八字', icon: '☯' },
   { pagePath: '/pages/fortune/index', text: '运势', icon: '✨' }
 ]
@@ -50,7 +59,13 @@ function switchTab(index: number) {
         <!-- Center raised tab -->
         <view v-if="tab.isCenter" class="tab-center-wrapper">
           <view class="tab-center-btn" :class="{ 'tab-center-active': active === index }">
-            <text class="tab-center-icon" :class="{ 'tab-center-icon-active': active === index }">{{ tab.icon }}</text>
+            <image
+              v-if="tab.iconPath && tab.selectedIconPath"
+              class="tab-center-image"
+              :src="active === index ? tab.selectedIconPath : tab.iconPath"
+              mode="aspectFit"
+            />
+            <text v-else class="tab-center-icon" :class="{ 'tab-center-icon-active': active === index }">{{ tab.icon }}</text>
           </view>
           <text class="tab-label" :class="{ 'tab-label-active': active === index }">{{ tab.text }}</text>
         </view>
@@ -135,26 +150,26 @@ function switchTab(index: number) {
   flex-direction: column;
   align-items: center;
   gap: 4rpx;
-  margin-top: -38rpx;
+  margin-top: -28rpx;
 }
 
 .tab-center-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 110rpx;
-  height: 110rpx;
-  border: 4rpx solid var(--gs-line);
+  width: 90rpx;
+  height: 90rpx;
+  border: 3rpx solid var(--gs-line);
   border-radius: 50%;
   background: linear-gradient(145deg, #fffaf0, #efe0c8);
-  box-shadow: 0 8rpx 28rpx rgba(67, 47, 25, 0.18);
+  box-shadow: 0 6rpx 20rpx rgba(67, 47, 25, 0.15);
   transition: background 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
 }
 
 .tab-center-active {
   border-color: var(--gs-line);
   background: linear-gradient(145deg, #fffaf0, #efe0c8);
-  box-shadow: 0 8rpx 28rpx rgba(67, 47, 25, 0.18);
+  box-shadow: 0 6rpx 20rpx rgba(67, 47, 25, 0.15);
 }
 
 .tab-center-icon {
@@ -167,6 +182,17 @@ function switchTab(index: number) {
 .tab-center-icon-active {
   opacity: 1;
   transform: scale(1.08);
+}
+
+.tab-center-image {
+  width: 65rpx;
+  height: 65rpx;
+  transform: scale(0.92);
+  transition: transform 200ms ease;
+}
+
+.tab-center-active .tab-center-image {
+  transform: scale(1.0);
 }
 
 /* Safe area */
