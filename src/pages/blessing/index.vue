@@ -2,47 +2,19 @@
 import { computed, onMounted, ref } from 'vue'
 import CustomTabBar from '@/components/CustomTabBar.vue'
 import { lightHaptic, trackEvent } from '@/services/platform'
-import { getDayAlmanac } from '@/services/almanac'
-import type { DateKey } from '@/types/calendar'
+import {
+  BLESSING_TYPES,
+  saveBlessingRecord,
+  getRecentBlessings,
+  getTodayLitTypes,
+  getCurrentHourInfo,
+  getRandomVerse,
+  getBlessingTypeConfig,
+  type BlessingType,
+  type BlessingTypeConfig,
+  type BlessingRecord
+} from '@/services/blessing'
 import { getTodayKey } from '@/services/calendar'
-
-type BlessingType = 'health' | 'career' | 'love' | 'family' | 'wealth' | 'study'
-
-interface BlessingTypeConfig {
-  id: BlessingType
-  label: string
-  lampEmoji: string
-  flameColor: string
-  description: string
-}
-
-interface BlessingRecord {
-  type: BlessingType
-  wish: string
-  dateKey: DateKey
-  hourName: string
-  createdAt: number
-  verse: string
-  isGoldHour: boolean
-}
-
-const BLESSING_TYPES: BlessingTypeConfig[] = [
-  { id: 'health', label: '安康', lampEmoji: '🪷', flameColor: '#55745a', description: '祈福安康，无病无忧' },
-  { id: 'career', label: '前程', lampEmoji: '🏯', flameColor: '#c78d2a', description: '祈福前程，步步高升' },
-  { id: 'love',   label: '良缘', lampEmoji: '🏮', flameColor: '#b84a3f', description: '祈福良缘，喜结连理' },
-  { id: 'family', label: '家宅', lampEmoji: '🏠', flameColor: '#315d76', description: '祈福家宅，和睦平安' },
-  { id: 'wealth', label: '财运', lampEmoji: '💰', flameColor: '#c78d2a', description: '祈福财运，财源广进' },
-  { id: 'study',  label: '学业', lampEmoji: '📖', flameColor: '#786d60', description: '祈福学业，金榜题名' }
-]
-
-const BLESSING_VERSES: Record<BlessingType, string[]> = {
-  health: ['心诚则灵，身健如松', '百病不侵，四季安康', '养身先养心，心宁体自安', '顺天时调作息，健康自然来'],
-  career: ['鹏程万里，大展宏图', '贵人相助，事半功倍', '厚积薄发，终有大成', '稳步前行，功成名就'],
-  love:   ['有情人终成眷属', '缘来缘至，喜结良缘', '以诚相待，情路自开', '珍惜眼前人，不负有情人'],
-  family: ['家和万事兴', '平安是福，知足常乐', '上慈下孝，家和业兴', '同心同德，幸福长存'],
-  wealth: ['财源广进，日进斗金', '勤勉持家，财运亨通', '开源节流，积少成多', '聚沙成塔，厚积薄发'],
-  study:  ['金榜题名，学业有成', '勤学苦练，终有所成', '书山有路勤为径', '学海无涯，日日精进']
-}
 
 const todayKey = getTodayKey()
 const wishText = ref('')
@@ -55,50 +27,34 @@ const currentHourName = ref('')
 const isGoldHour = ref(false)
 
 onMounted(() => {
-  loadRecentBlessings()
-  updateCurrentHour()
   restoreLitTypes()
+  updateCurrentHour()
+  loadRecentBlessings()
 })
 
 function updateCurrentHour() {
-  const almanac = getDayAlmanac(todayKey)
-  currentHourName.value = almanac.highlightHour.branch.name
-  isGoldHour.value = almanac.highlightHour.level === 'good'
+  const info = getCurrentHourInfo(todayKey)
+  currentHourName.value = info.hourName
+  isGoldHour.value = info.isGoldHour
 }
 
 function loadRecentBlessings() {
-  try {
-    const raw = uni.getStorageSync('blessing_records')
-    if (raw) {
-      const all = JSON.parse(raw) as BlessingRecord[]
-      recentBlessings.value = all.slice(-5).reverse()
-    }
-  } catch {
-    recentBlessings.value = []
-  }
+  recentBlessings.value = getRecentBlessings()
 }
 
 function restoreLitTypes() {
-  try {
-    const raw = uni.getStorageSync('blessing_records')
-    if (!raw) return
-    const all = JSON.parse(raw) as BlessingRecord[]
-    const today = all.filter(b => b.dateKey === todayKey)
-    litTypes.value = new Set(today.map(b => b.type))
-  } catch {
-    litTypes.value = new Set()
-  }
+  litTypes.value = getTodayLitTypes(todayKey)
 }
 
 const todayBlessingCount = computed(() => litTypes.value.size)
 const wishPreview = computed(() => wishText.value.trim() || '一切顺利')
 const displayBlessingType = computed(() => {
-  if (isLighting.value && lightingType.value) return getBlessingType(lightingType.value)
-  if (blessingResult.value) return getBlessingType(blessingResult.value.type)
+  if (isLighting.value && lightingType.value) return getBlessingTypeConfig(lightingType.value)
+  if (blessingResult.value) return getBlessingTypeConfig(blessingResult.value.type)
   return BLESSING_TYPES.find((type) => litTypes.value.has(type.id)) || BLESSING_TYPES[2]
 })
-const lightingTypeConfig = computed(() => lightingType.value ? getBlessingType(lightingType.value) : null)
-const resultTypeConfig = computed(() => blessingResult.value ? getBlessingType(blessingResult.value.type) : null)
+const lightingTypeConfig = computed(() => lightingType.value ? getBlessingTypeConfig(lightingType.value) : null)
+const resultTypeConfig = computed(() => blessingResult.value ? getBlessingTypeConfig(blessingResult.value.type) : null)
 
 function lightLamp(type: BlessingType) {
   if (isLighting.value) return
@@ -115,8 +71,7 @@ function lightLamp(type: BlessingType) {
 }
 
 function finishBlessing(type: BlessingType) {
-  const verses = BLESSING_VERSES[type]
-  const verse = verses[Math.floor(Math.random() * verses.length)]
+  const verse = getRandomVerse(type)
 
   const record: BlessingRecord = {
     type,
@@ -134,16 +89,7 @@ function finishBlessing(type: BlessingType) {
   litTypes.value.add(type)
   lightHaptic()
 
-  try {
-    const raw = uni.getStorageSync('blessing_records')
-    const all: BlessingRecord[] = raw ? JSON.parse(raw) : []
-    all.push(record)
-    if (all.length > 100) all.splice(0, all.length - 100)
-    uni.setStorageSync('blessing_records', JSON.stringify(all))
-  } catch {
-    // ignore
-  }
-
+  saveBlessingRecord(record)
   loadRecentBlessings()
   trackEvent('blessing_complete', { type: record.type, is_gold_hour: record.isGoldHour })
 }
@@ -153,16 +99,12 @@ function dismissResult() {
   wishText.value = ''
 }
 
-function getBlessingType(type: BlessingType): BlessingTypeConfig {
-  return BLESSING_TYPES.find((item) => item.id === type) || BLESSING_TYPES[0]
-}
-
 function getLampStyle(type: BlessingTypeConfig): Record<string, string> {
   return { '--lamp-color': type.flameColor }
 }
 
 function getRecordStyle(record: BlessingRecord): Record<string, string> {
-  return { '--lamp-color': getBlessingType(record.type).flameColor }
+  return { '--lamp-color': getBlessingTypeConfig(record.type).flameColor }
 }
 </script>
 
@@ -296,7 +238,7 @@ function getRecordStyle(record: BlessingRecord): Record<string, string> {
             <view class="slip-pin"></view>
             <text class="slip-wish">{{ b.wish }}</text>
             <view class="slip-foot">
-              <text>{{ b.hourName }} · {{ getBlessingType(b.type).label }}</text>
+              <text>{{ b.hourName }} · {{ getBlessingTypeConfig(b.type).label }}</text>
               <text v-if="b.isGoldHour" class="slip-gold">吉时</text>
             </view>
           </view>

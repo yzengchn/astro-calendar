@@ -4,6 +4,10 @@ import { onShow } from '@dcloudio/uni-app'
 import HourAdviceCard from '@/components/HourAdviceCard.vue'
 import TimeCompass from '@/components/TimeCompass.vue'
 import TimelineView from '@/components/TimelineView.vue'
+import InfoCard from '@/components/cards/InfoCard.vue'
+import YiJiCard from '@/components/cards/YiJiCard.vue'
+import DateSignalBar from '@/components/calendar/DateSignalBar.vue'
+import LuckyMarkBadge from '@/components/calendar/LuckyMarkBadge.vue'
 import type { DayAlmanac, HourAlmanac } from '@/types/almanac'
 import type { CalendarDay, DateKey, HolidayItem } from '@/types/calendar'
 import { formatDateKey, getMonthCalendar, getTodayKey, getWeekdayLabels, isDateKey, parseDateKey, type WeekFirstDay, WEEKDAYS } from '@/services/calendar'
@@ -625,8 +629,8 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </picker>
     </view>
 
-    <view v-if="selectedDay?.holidayName || selectedDay?.festival || selectedDay?.solarTerm" class="day-signal">
-      <text>{{ selectedDay?.holidayName || selectedDay?.festival || selectedDay?.solarTerm }}</text>
+    <view class="day-signal-override">
+      <DateSignalBar :text="selectedDay?.holidayName || selectedDay?.festival || selectedDay?.solarTerm" />
     </view>
 
     <view class="calendar-shell" :class="`calendar-shell-${calendarViewMode}`" @touchstart="onTouchStart" @touchend="onTouchEnd">
@@ -689,77 +693,56 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
         <text class="hero-date">{{ selectedAlmanac.title }} {{ selectedAlmanac.weekdayText }}</text>
         <text class="hero-lunar">{{ selectedAlmanac.lunarText }}</text>
         <text v-if="selectedAlmanac.festivalText" class="hero-festival">{{ selectedAlmanac.festivalText }}</text>
-        <view v-if="activeLuckyMark" class="hero-lucky">
-          <text class="hero-lucky-emoji">{{ activeLuckyMark.emoji }}</text>
-          <text class="hero-lucky-label">{{ activeLuckyMark.label }}</text>
+        <view class="hero-lucky-override">
+          <LuckyMarkBadge v-if="activeLuckyMark" :emoji="activeLuckyMark.emoji" :label="activeLuckyMark.label" />
         </view>
       </view>
 
       <!-- 时令信息 -->
       <view v-if="isModuleVisible('season_info')" class="info-grid">
-        <view
+        <InfoCard
           v-if="moonPhase"
-          class="info-card info-card-action"
-          :class="{ 'info-card-active': activeInfoDetail === 'moon' }"
+          :icon="moonPhase.phaseEmoji"
+          :title="moonPhase.phaseName"
+          :subtitle="`月光${moonPhase.illumination}%`"
+          :summary="moonPhase.modern"
+          actionable
+          :active="activeInfoDetail === 'moon'"
+          :action-text="activeInfoDetail === 'moon' ? '收起' : '详情'"
           @tap="toggleInfoDetail('moon')"
-        >
-          <view class="info-card-head">
-            <text class="info-icon">{{ moonPhase.phaseEmoji }}</text>
-            <view class="info-copy">
-              <text class="info-title">{{ moonPhase.phaseName }}</text>
-              <text class="info-subtitle">月光{{ moonPhase.illumination }}%</text>
-            </view>
-            <text class="info-action">{{ activeInfoDetail === 'moon' ? '收起' : '详情' }}</text>
-          </view>
-          <text class="info-summary">{{ moonPhase.modern }}</text>
-        </view>
-        <view
+        />
+        <InfoCard
           v-if="activeSolarTerm"
-          class="info-card info-card-action"
-          :class="{ 'info-card-active': activeInfoDetail === 'term' }"
+          icon="节"
+          :title="activeSolarTerm.name"
+          :subtitle="solarTermStatus"
+          :summary="activeSolarTerm.climate"
+          actionable
+          :active="activeInfoDetail === 'term'"
+          :action-text="activeInfoDetail === 'term' ? '收起' : '详情'"
           @tap="toggleInfoDetail('term')"
-        >
-          <view class="info-card-head">
-            <text class="info-icon">节</text>
-            <view class="info-copy">
-              <text class="info-title">{{ activeSolarTerm.name }}</text>
-              <text class="info-subtitle">{{ solarTermStatus }}</text>
-            </view>
-            <text class="info-action">{{ activeInfoDetail === 'term' ? '收起' : '详情' }}</text>
-          </view>
-          <text class="info-summary">{{ activeSolarTerm.climate }}</text>
-        </view>
-        <view
+        />
+        <InfoCard
           v-if="periodData"
-          class="info-card info-card-action"
-          :class="{ 'info-card-active': activeInfoDetail === 'period' }"
+          icon="候"
+          :title="periodData.name"
+          :subtitle="`${periodData.solarTerm} · 第${periodData.order}候`"
+          :summary="periodData.modern"
+          actionable
+          :active="activeInfoDetail === 'period'"
+          :action-text="activeInfoDetail === 'period' ? '收起' : '详情'"
           @tap="toggleInfoDetail('period')"
-        >
-          <view class="info-card-head">
-            <text class="info-icon">候</text>
-            <view class="info-copy">
-              <text class="info-title">{{ periodData.name }}</text>
-              <text class="info-subtitle">{{ periodData.solarTerm }} · 第{{ periodData.order }}候</text>
-            </view>
-            <text class="info-action">{{ activeInfoDetail === 'period' ? '收起' : '详情' }}</text>
-          </view>
-          <text class="info-summary">{{ periodData.modern }}</text>
-        </view>
-        <view
-          class="info-card"
-          :class="{ 'info-card-action': seasonSpecial, 'info-card-active': activeInfoDetail === 'season' }"
+        />
+        <InfoCard
+          :icon="seasonSpecial ? (seasonSpecial.type === 'countNine' ? '九' : '伏') : '常'"
+          :title="seasonSpecial ? seasonSpecialTitle : '常季'"
+          :subtitle="seasonSpecialSubtitle"
+          :summary="seasonSpecialSummary"
+          :actionable="Boolean(seasonSpecial)"
+          :active="activeInfoDetail === 'season'"
+          :action-text="seasonSpecial ? (activeInfoDetail === 'season' ? '收起' : '详情') : undefined"
           @tap="toggleSeasonDetail"
-        >
-          <view class="info-card-head">
-            <text class="info-icon">{{ seasonSpecial ? (seasonSpecial.type === 'countNine' ? '九' : '伏') : '常' }}</text>
-            <view class="info-copy">
-              <text class="info-title">{{ seasonSpecial ? seasonSpecialTitle : '常季' }}</text>
-              <text class="info-subtitle">{{ seasonSpecialSubtitle }}</text>
-            </view>
-            <text v-if="seasonSpecial" class="info-action">{{ activeInfoDetail === 'season' ? '收起' : '详情' }}</text>
-          </view>
-          <text class="info-summary">{{ seasonSpecialSummary }}</text>
-        </view>
+        />
       </view>
 
       <!-- 月相详情 -->
@@ -811,22 +794,13 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
       </view>
 
       <!-- 今日宜忌 -->
-      <view v-if="isModuleVisible('advice')" class="panel advice-panel">
-        <view class="advice-row">
-          <text class="advice-mark advice-good">宜</text>
-          <view class="advice-content">
-            <text class="advice-traditional">{{ selectedAlmanac.traditionalSuitable.join(' · ') }}</text>
-            <text class="advice-modern">{{ selectedAlmanac.suitable.join(' · ') }}</text>
-          </view>
-        </view>
-        <view class="advice-row">
-          <text class="advice-mark advice-bad">忌</text>
-          <view class="advice-content">
-            <text class="advice-traditional">{{ selectedAlmanac.traditionalAvoid.join(' · ') }}</text>
-            <text class="advice-text">{{ selectedAlmanac.avoid.join(' · ') }}</text>
-          </view>
-        </view>
-      </view>
+      <YiJiCard
+        v-if="isModuleVisible('advice')"
+        :suitable="selectedAlmanac.traditionalSuitable"
+        :avoid="selectedAlmanac.traditionalAvoid"
+        :suitable-modern="selectedAlmanac.suitable"
+        :avoid-modern="selectedAlmanac.avoid"
+      />
 
       <!-- 当前时辰 -->
       <view v-if="isModuleVisible('current_hour')" class="panel hour-panel">
@@ -1149,10 +1123,11 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
   margin: 0;
 }
 
-.day-signal {
+.day-signal-override :deep(.day-signal) {
   margin-bottom: 18rpx;
   padding: 18rpx 22rpx;
   border-left: 6rpx solid var(--gs-gold);
+  border-radius: 0;
   background: rgba(199, 141, 42, 0.12);
   color: #754d15;
   font-size: 26rpx;
@@ -1431,10 +1406,8 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
   font-size: 24rpx;
 }
 
-.hero-lucky {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
+/* Lucky mark badge override for home page style */
+.hero-lucky-override :deep(.hero-lucky) {
   margin-top: 14rpx;
   padding: 8rpx 18rpx;
   border: 1rpx solid rgba(199, 141, 42, 0.28);
@@ -1443,14 +1416,14 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
   align-self: flex-start;
 }
 
-.hero-lucky-emoji {
-  font-size: 24rpx;
-}
-
-.hero-lucky-label {
+.hero-lucky-override :deep(.hero-lucky-label) {
   color: #6f4510;
   font-size: 22rpx;
   font-weight: 800;
+}
+
+.hero-lucky-override :deep(.hero-lucky-emoji) {
+  font-size: 24rpx;
 }
 
 /* 信息网格 */
@@ -1461,41 +1434,29 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
   margin-bottom: 18rpx;
 }
 
-.info-card {
+.info-grid :deep(.info-card) {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 12rpx;
   min-height: 178rpx;
   padding: 18rpx;
-  border: 1rpx solid var(--gs-line);
   border-radius: 14rpx;
   background: rgba(255, 250, 240, 0.58);
 }
 
-.info-card-action {
+.info-grid :deep(.info-card-action) {
   border-color: rgba(49, 93, 118, 0.18);
   background: rgba(255, 250, 240, 0.78);
 }
 
-.info-card-active {
+.info-grid :deep(.info-card-active) {
   border-color: rgba(49, 93, 118, 0.48);
   background: rgba(49, 93, 118, 0.08);
   box-shadow: 0 10rpx 24rpx rgba(49, 93, 118, 0.12);
 }
 
-.info-card-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 12rpx;
-  min-width: 0;
-}
-
-.info-icon {
-  display: flex;
-  flex: 0 0 48rpx;
-  align-items: center;
-  justify-content: center;
+.info-grid :deep(.info-icon) {
   width: 48rpx;
   height: 48rpx;
   border-radius: 50%;
@@ -1503,21 +1464,10 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
   background: var(--gs-blue);
   font-size: 24rpx;
   font-weight: 900;
-  line-height: 1;
 }
 
-.info-copy {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 4rpx;
-  min-width: 0;
-}
-
-.info-title {
-  display: block;
+.info-grid :deep(.info-title) {
   overflow: hidden;
-  color: var(--gs-ink);
   font-size: 27rpx;
   font-weight: 900;
   line-height: 1.2;
@@ -1525,94 +1475,25 @@ const hasBazi = computed(() => Boolean(getBaziInfo()))
   white-space: nowrap;
 }
 
-.info-subtitle {
-  display: block;
+.info-grid :deep(.info-subtitle) {
   overflow: hidden;
-  color: var(--gs-muted);
   font-size: 21rpx;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.info-action {
-  flex: 0 0 auto;
+.info-grid :deep(.info-action) {
   color: var(--gs-blue);
   font-size: 21rpx;
   font-weight: 800;
-  line-height: 1.3;
-  white-space: nowrap;
 }
 
-.info-summary {
+.info-grid :deep(.info-summary) {
   display: -webkit-box;
   overflow: hidden;
-  color: var(--gs-ink);
-  font-size: 23rpx;
-  line-height: 1.42;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-}
-
-/* 宜忌面板 */
-.advice-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16rpx;
-  margin-bottom: 18rpx;
-  padding: 24rpx;
-}
-
-.advice-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 14rpx;
-}
-
-.advice-mark {
-  flex: 0 0 auto;
-  width: 44rpx;
-  height: 44rpx;
-  border-radius: 50%;
-  color: #ffffff;
-  font-size: 22rpx;
-  line-height: 44rpx;
-  text-align: center;
-}
-
-.advice-good {
-  background: var(--gs-green);
-}
-
-.advice-bad {
-  background: var(--gs-red);
-}
-
-.advice-content {
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-  flex: 1;
-}
-
-.advice-traditional {
-  color: var(--gs-muted);
-  font-size: 22rpx;
-  line-height: 1.5;
-}
-
-.advice-modern {
-  color: var(--gs-ink);
-  font-size: 26rpx;
-  font-weight: 500;
-  line-height: 1.5;
-}
-
-.advice-text {
-  flex: 1;
-  color: var(--gs-ink);
-  font-size: 26rpx;
-  line-height: 1.5;
 }
 
 /* 时辰面板 */

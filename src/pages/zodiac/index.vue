@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import CustomTabBar from '@/components/CustomTabBar.vue'
+import ReadingCard from '@/components/cards/ReadingCard.vue'
+import type { ReadingLayer } from '@/components/cards/ReadingCard.vue'
 import {
   calculateBazi,
   clearBaziInfo,
@@ -94,6 +96,38 @@ const mingGongReading = computed(() => {
 })
 
 const currentDaYun = computed(() => daYunList.value.find(d => d.isCurrent))
+
+// ReadingCard layer compositions
+const dayMasterLayers = computed<ReadingLayer[]>(() => {
+  if (!dayMasterReading.value) return []
+  return [
+    { label: '古', text: dayMasterReading.value.trait, type: 'ancient' },
+    { label: '今', text: dayMasterReading.value.modern, type: 'modern' },
+    { label: '悟', text: dayMasterReading.value.insight, type: 'insight' }
+  ]
+})
+const wuXingLayers = computed<ReadingLayer[]>(() => {
+  if (!dominantWuXing.value) return []
+  return [
+    { label: '今', text: dominantWuXing.value.modern, type: 'modern' },
+    { label: '悟', text: dominantWuXing.value.insight, type: 'insight' }
+  ]
+})
+const mingGongLayers = computed<ReadingLayer[]>(() => {
+  if (!analysis.value) return []
+  return [
+    { label: '古', text: `${analysis.value.mingGong}（${analysis.value.mingGongNaYin}）`, type: 'ancient' },
+    { label: '今', text: mingGongReading.value, type: 'modern' }
+  ]
+})
+const daYunLayers = computed<ReadingLayer[]>(() => {
+  if (!currentDaYun.value) return []
+  const reading = getDaYunReading(currentDaYun.value.ganZhi)
+  return [
+    { label: '今', text: `${reading.phase} · 适合顺势调整人生节奏`, type: 'modern' },
+    { label: '悟', text: reading.insight, type: 'insight' }
+  ]
+})
 
 const pillarKeys = ['year', 'month', 'day', 'hour'] as const
 const pillarLabels = ['年柱', '月柱', '日柱', '时柱']
@@ -217,31 +251,18 @@ function handleHourChange(event: PickerChangeEvent) {
       </view>
 
       <!-- 日主性格：古→今→悟 -->
-      <view v-if="dayMasterReading" class="panel reading-card">
-        <view class="reading-header">
-          <text class="reading-title">日主 · {{ baziInfo.dayGanZhi.slice(0, 1) }}{{ getWuXingModern(pillarGanWuXing('day')).keyword }}</text>
-        </view>
-        <view class="reading-body">
-          <view class="reading-layer">
-            <text class="reading-label-ancient">古</text>
-            <text class="reading-text-ancient">{{ dayMasterReading.trait }}</text>
-          </view>
-          <view class="reading-layer">
-            <text class="reading-label-modern">今</text>
-            <text class="reading-text-modern">{{ dayMasterReading.modern }}</text>
-          </view>
-          <view class="reading-layer">
-            <text class="reading-label-insight">悟</text>
-            <text class="reading-text-insight">{{ dayMasterReading.insight }}</text>
-          </view>
-        </view>
-      </view>
+      <ReadingCard
+        v-if="dayMasterReading"
+        :title="`日主 · ${baziInfo.dayGanZhi.slice(0, 1)}${getWuXingModern(pillarGanWuXing('day')).keyword}`"
+        :layers="dayMasterLayers"
+      />
 
       <!-- 五行格局 -->
-      <view v-if="dominantWuXing" class="panel reading-card">
-        <view class="reading-header">
-          <text class="reading-title">五行格局 · {{ dominantWuXing.name }}{{ dominantWuXing.keyword }}</text>
-        </view>
+      <view v-if="dominantWuXing" class="panel wuxing-panel">
+        <ReadingCard
+          :title="`五行格局 · ${dominantWuXing.name}${dominantWuXing.keyword}`"
+          :layers="[]"
+        />
         <view class="wuxing-chart">
           <view v-for="wx in wuXingCount" :key="wx.name" class="wuxing-row">
             <text class="wuxing-name" :style="{ color: wx.color }">{{ wx.name }}</text>
@@ -251,14 +272,10 @@ function handleHourChange(event: PickerChangeEvent) {
             <text class="wuxing-count">{{ wx.count }}</text>
           </view>
         </view>
-        <view class="reading-layer" style="margin-top: 16rpx;">
-          <text class="reading-label-modern">今</text>
-          <text class="reading-text-modern">{{ dominantWuXing.modern }}</text>
-        </view>
-        <view class="reading-layer">
-          <text class="reading-label-insight">悟</text>
-          <text class="reading-text-insight">{{ dominantWuXing.insight }}</text>
-        </view>
+        <ReadingCard
+          title=""
+          :layers="wuXingLayers"
+        />
       </view>
 
       <!-- 十神角色 -->
@@ -276,21 +293,11 @@ function handleHourChange(event: PickerChangeEvent) {
       </view>
 
       <!-- 命宫 -->
-      <view v-if="analysis" class="panel reading-card">
-        <view class="reading-header">
-          <text class="reading-title">命宫 · {{ analysis.mingGong }}</text>
-        </view>
-        <view class="reading-body">
-          <view class="reading-layer">
-            <text class="reading-label-ancient">古</text>
-            <text class="reading-text-ancient">{{ analysis.mingGong }}（{{ analysis.mingGongNaYin }}）</text>
-          </view>
-          <view class="reading-layer">
-            <text class="reading-label-modern">今</text>
-            <text class="reading-text-modern">{{ mingGongReading }}</text>
-          </view>
-        </view>
-      </view>
+      <ReadingCard
+        v-if="analysis"
+        :title="`命宫 · ${analysis.mingGong}`"
+        :layers="mingGongLayers"
+      />
 
       <!-- 生肖卡片 -->
       <view v-if="zodiacAnimal" class="panel reading-card">
@@ -328,22 +335,12 @@ function handleHourChange(event: PickerChangeEvent) {
           <text class="dayun-toggle-arrow" :class="{ open: showDaYun }">›</text>
         </view>
       </view>
-      <view v-if="currentDaYun" class="panel reading-card">
-        <view class="reading-header">
-          <text class="reading-title">当前大运 · {{ currentDaYun.ganZhi }}</text>
-          <text class="reading-sub">{{ currentDaYun.startAge }}-{{ currentDaYun.endAge }}岁</text>
-        </view>
-        <view class="reading-body">
-          <view class="reading-layer">
-            <text class="reading-label-modern">今</text>
-            <text class="reading-text-modern">{{ getDaYunReading(currentDaYun.ganZhi).phase }} · 适合顺势调整人生节奏</text>
-          </view>
-          <view class="reading-layer">
-            <text class="reading-label-insight">悟</text>
-            <text class="reading-text-insight">{{ getDaYunReading(currentDaYun.ganZhi).insight }}</text>
-          </view>
-        </view>
-      </view>
+      <ReadingCard
+        v-if="currentDaYun"
+        :title="`当前大运 · ${currentDaYun.ganZhi}`"
+        :subtitle="`${currentDaYun.startAge}-${currentDaYun.endAge}岁`"
+        :layers="daYunLayers"
+      />
       <view v-if="showDaYun" class="panel dayun-card">
         <view
           v-for="dy in daYunList"
@@ -517,99 +514,23 @@ function handleHourChange(event: PickerChangeEvent) {
   font-weight: 700;
 }
 
-/* ===== Reading card (古→今→悟) ===== */
-.reading-card {
-  padding: 24rpx;
-}
-
-.reading-header {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 12rpx;
-  margin-bottom: 16rpx;
-}
-
-.reading-title {
-  color: var(--gs-ink);
-  font-size: 28rpx;
-  font-weight: 900;
-}
-
-.reading-sub {
-  color: var(--gs-muted);
-  font-size: 22rpx;
-  font-weight: 700;
-}
-
-.reading-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12rpx;
-}
-
-.reading-layer {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 12rpx;
-}
-
-.reading-label-ancient {
-  flex: none;
-  width: 40rpx;
-  padding: 2rpx 0;
-  color: var(--gs-muted);
-  font-size: 18rpx;
-  font-weight: 700;
-  text-align: center;
-  border-bottom: 2rpx solid var(--gs-line);
-}
-
-.reading-label-modern {
-  flex: none;
-  width: 40rpx;
-  padding: 2rpx 0;
-  color: var(--gs-blue);
-  font-size: 18rpx;
-  font-weight: 700;
-  text-align: center;
-  border-bottom: 2rpx solid var(--gs-blue);
-}
-
-.reading-label-insight {
-  flex: none;
-  width: 40rpx;
-  padding: 2rpx 0;
-  color: var(--gs-gold);
-  font-size: 18rpx;
-  font-weight: 700;
-  text-align: center;
-  border-bottom: 2rpx solid var(--gs-gold);
-}
-
-.reading-text-ancient {
-  color: var(--gs-muted);
-  font-size: 24rpx;
-  font-weight: 700;
-  line-height: 1.5;
-}
-
-.reading-text-modern {
-  color: var(--gs-ink);
-  font-size: 24rpx;
-  font-weight: 700;
-  line-height: 1.5;
-}
-
-.reading-text-insight {
-  color: var(--gs-gold);
-  font-size: 22rpx;
-  font-weight: 700;
-  line-height: 1.5;
-}
-
 /* ===== WuXing chart ===== */
+.wuxing-panel {
+  padding: 0;
+}
+.wuxing-panel :deep(.reading-card) {
+  border: none;
+  box-shadow: none;
+}
+.wuxing-panel :deep(.reading-card:first-child) {
+  padding-bottom: 0;
+}
+.wuxing-panel :deep(.reading-card:last-child) {
+  padding-top: 0;
+}
+.wuxing-panel :deep(.reading-card:last-child .reading-header) {
+  display: none;
+}
 .wuxing-chart {
   display: flex;
   flex-direction: column;

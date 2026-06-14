@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import CustomTabBar from '@/components/CustomTabBar.vue'
+import ReadingCard from '@/components/cards/ReadingCard.vue'
+import type { ReadingLayer } from '@/components/cards/ReadingCard.vue'
+import YiJiCard from '@/components/cards/YiJiCard.vue'
+import GodCard from '@/components/cards/GodCard.vue'
 import { getDayAlmanac, getGodKeyword, getGodTrait } from '@/services/almanac'
 import type { DateKey } from '@/types/calendar'
 import { getTodayKey, parseDateKey } from '@/services/calendar'
@@ -81,6 +85,40 @@ const unluckyGodsTrait = computed(() => dayAlmanac.value.unluckyGods.map(g => ge
 const seasonTitle = computed(() => {
   if (!seasonSpecial.value) return ''
   return seasonSpecial.value.type === 'countNine' ? `数九 · ${(seasonSpecial.value.data as { name: string }).name}` : `三伏 · ${(seasonSpecial.value.data as { period: string }).period}`
+})
+
+// ReadingCard layer compositions
+const todayReadingLayers = computed<ReadingLayer[]>(() => {
+  const layers: ReadingLayer[] = [{ label: '今', text: dayAlmanac.value.guide, type: 'modern' }]
+  if (todayInsight.value) layers.push({ label: '悟', text: todayInsight.value, type: 'insight' })
+  return layers
+})
+const periodReadingLayers = computed<ReadingLayer[]>(() => {
+  if (!periodData.value) return []
+  return [
+    { label: '古', text: periodData.value.ancient, type: 'ancient' },
+    { label: '今', text: periodData.value.modern, type: 'modern' },
+    { label: '悟', text: periodData.value.insight, type: 'insight' }
+  ]
+})
+const moonReadingLayers = computed<ReadingLayer[]>(() => [
+  { label: '古', text: todayAncient.value, type: 'ancient' },
+  { label: '今', text: todayModern.value, type: 'modern' },
+  { label: '悟', text: todayInsight.value, type: 'insight' }
+])
+const seasonReadingLayers = computed<ReadingLayer[]>(() => {
+  if (!seasonSpecial.value) return []
+  return [
+    { label: '古', text: seasonSpecial.value.data.ancient, type: 'ancient' },
+    { label: '今', text: seasonSpecial.value.data.modern, type: 'modern' },
+    { label: '悟', text: seasonSpecial.value.data.insight, type: 'insight' }
+  ]
+})
+const fortuneHintLayers = computed<ReadingLayer[]>(() => {
+  if (!fortune.value) return []
+  const layers: ReadingLayer[] = [{ label: '今', text: fortune.value.summary, type: 'modern' }]
+  if (fortune.value.caution) layers.push({ label: '忌', text: fortune.value.caution, type: 'caution' })
+  return layers
 })
 
 // Zodiac sections
@@ -279,64 +317,29 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
     </view>
 
     <!-- 黄历日运：今→悟 -->
-    <view class="panel reading-card">
-      <view class="reading-header">
-        <text class="reading-title">今日 · {{ dayAlmanac.keyword }}</text>
-        <text class="reading-sub">{{ dayAlmanac.trait }}</text>
-      </view>
-      <view class="reading-body">
-        <view class="reading-layer">
-          <text class="reading-label-modern">今</text>
-          <text class="reading-text-modern">{{ dayAlmanac.guide }}</text>
-        </view>
-        <view v-if="todayInsight" class="reading-layer">
-          <text class="reading-label-insight">悟</text>
-          <text class="reading-text-insight">{{ todayInsight }}</text>
-        </view>
-      </view>
-    </view>
+    <ReadingCard
+      :title="`今日 · ${dayAlmanac.keyword}`"
+      :subtitle="dayAlmanac.trait"
+      :layers="todayReadingLayers"
+    />
 
     <!-- 宜忌：左古右今 -->
-    <view class="panel advice-card">
-      <view class="advice-section">
-        <view class="advice-row">
-          <text class="advice-mark advice-good">宜</text>
-          <view class="advice-content">
-            <text class="advice-ancient">{{ traditionalSuitable.join(' · ') }}</text>
-            <view class="advice-arrow">↓ 现代解读 ↓</view>
-            <text class="advice-modern">{{ modernSuitable.join(' · ') }}</text>
-          </view>
-        </view>
-        <view class="advice-row">
-          <text class="advice-mark advice-bad">忌</text>
-          <view class="advice-content">
-            <text class="advice-ancient">{{ traditionalAvoid.join(' · ') }}</text>
-            <view class="advice-arrow">↓ 现代解读 ↓</view>
-            <text class="advice-modern">{{ modernAvoid.join(' · ') }}</text>
-          </view>
-        </view>
-      </view>
-    </view>
+    <YiJiCard
+      :suitable="traditionalSuitable"
+      :avoid="traditionalAvoid"
+      :suitable-modern="modernSuitable"
+      :avoid-modern="modernAvoid"
+    />
 
     <!-- 吉神凶神：左古右今 -->
-    <view class="panel god-card">
-      <view class="god-row">
-        <text class="god-label god-good">吉神</text>
-        <view class="god-content">
-          <text class="god-ancient">{{ dayAlmanac.luckyGods.join(' · ') }}</text>
-          <text class="god-modern">{{ luckyGodsModern }}</text>
-          <text class="god-trait">{{ luckyGodsTrait }}</text>
-        </view>
-      </view>
-      <view class="god-row">
-        <text class="god-label god-bad">凶神</text>
-        <view class="god-content">
-          <text class="god-ancient">{{ dayAlmanac.unluckyGods.join(' · ') }}</text>
-          <text class="god-modern">{{ unluckyGodsModern }}</text>
-          <text class="god-trait">{{ unluckyGodsTrait }}</text>
-        </view>
-      </view>
-    </view>
+    <GodCard
+      :lucky-gods="dayAlmanac.luckyGods"
+      :unlucky-gods="dayAlmanac.unluckyGods"
+      :lucky-keywords="luckyGodsModern"
+      :unlucky-keywords="unluckyGodsModern"
+      :lucky-traits="luckyGodsTrait"
+      :unlucky-traits="unluckyGodsTrait"
+    />
 
     <!-- 当前时辰高亮 -->
     <view v-if="currentHour" class="panel current-hour-card">
@@ -354,10 +357,10 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
         <text class="current-hour-kw-text">{{ currentHour.keyword }}</text>
         <text class="current-hour-trait-text">{{ currentHour.trait }}</text>
       </view>
-      <view class="reading-body">
+      <view class="reading-body-inline">
         <view class="reading-layer">
-          <text class="reading-label-modern">今</text>
-          <text class="reading-text-modern">{{ currentHour.guide }}</text>
+          <text class="rl-modern">今</text>
+          <text class="rt-modern">{{ currentHour.guide }}</text>
         </view>
       </view>
     </view>
@@ -374,47 +377,20 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
     </view>
 
     <!-- 七十二候 -->
-    <view v-if="periodData" class="panel reading-card">
-      <view class="reading-header">
-        <text class="reading-title">七十二候 · {{ periodData.name }}</text>
-        <text class="reading-sub">{{ periodData.solarTerm }}</text>
-      </view>
-      <view class="reading-body">
-        <view class="reading-layer">
-          <text class="reading-label-ancient">古</text>
-          <text class="reading-text-ancient">{{ periodData.ancient }}</text>
-        </view>
-        <view class="reading-layer">
-          <text class="reading-label-modern">今</text>
-          <text class="reading-text-modern">{{ periodData.modern }}</text>
-        </view>
-        <view class="reading-layer">
-          <text class="reading-label-insight">悟</text>
-          <text class="reading-text-insight">{{ periodData.insight }}</text>
-        </view>
-      </view>
-    </view>
+    <ReadingCard
+      v-if="periodData"
+      :title="`七十二候 · ${periodData.name}`"
+      :subtitle="periodData.solarTerm"
+      :layers="periodReadingLayers"
+    />
 
     <!-- 月相禅意 -->
-    <view v-if="moonPhase" class="panel reading-card">
-      <view class="reading-header">
-        <text class="reading-title">月相 · {{ moonPhase.phaseEmoji }} {{ moonPhase.phaseName }}</text>
-        <text class="reading-sub">亮度 {{ moonPhase.illumination }}%</text>
-      </view>
-      <view class="reading-body">
-        <view class="reading-layer">
-          <text class="reading-label-ancient">古</text>
-          <text class="reading-text-ancient">{{ todayAncient }}</text>
-        </view>
-        <view class="reading-layer">
-          <text class="reading-label-modern">今</text>
-          <text class="reading-text-modern">{{ todayModern }}</text>
-        </view>
-        <view class="reading-layer">
-          <text class="reading-label-insight">悟</text>
-          <text class="reading-text-insight">{{ todayInsight }}</text>
-        </view>
-      </view>
+    <view v-if="moonPhase" class="panel moon-phase-panel">
+      <ReadingCard
+        :title="`月相 · ${moonPhase.phaseEmoji} ${moonPhase.phaseName}`"
+        :subtitle="`亮度 ${moonPhase.illumination}%`"
+        :layers="moonReadingLayers"
+      />
       <!-- 月相宜忌 -->
       <view class="moon-suitable">
         <view class="moon-suit-row">
@@ -429,30 +405,16 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
     </view>
 
     <!-- 数九三伏 -->
-    <view v-if="seasonSpecial" class="panel reading-card">
-      <view class="reading-header">
-        <text class="reading-title">{{ seasonTitle }}</text>
-      </view>
-      <view class="reading-body">
-        <view class="reading-layer">
-          <text class="reading-label-ancient">古</text>
-          <text class="reading-text-ancient">{{ seasonSpecial.data.ancient }}</text>
-        </view>
-        <view class="reading-layer">
-          <text class="reading-label-modern">今</text>
-          <text class="reading-text-modern">{{ seasonSpecial.data.modern }}</text>
-        </view>
-        <view class="reading-layer">
-          <text class="reading-label-insight">悟</text>
-          <text class="reading-text-insight">{{ seasonSpecial.data.insight }}</text>
-        </view>
-      </view>
-    </view>
+    <ReadingCard
+      v-if="seasonSpecial"
+      :title="seasonTitle"
+      :layers="seasonReadingLayers"
+    />
 
     <!-- 彭祖百忌 -->
     <view class="panel pengzu-card">
-      <view class="reading-header">
-        <text class="reading-title">彭祖百忌</text>
+      <view class="pengzu-header">
+        <text class="pengzu-title">彭祖百忌</text>
       </view>
       <view class="pengzu-body">
         <text class="pengzu-text">{{ dayAlmanac.pengzu }}</text>
@@ -526,21 +488,10 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
       </view>
 
       <!-- 今日核心提示：今→忌 -->
-      <view class="panel reading-card">
-        <view class="reading-header">
-          <text class="reading-title">今日提示</text>
-        </view>
-        <view class="reading-body">
-          <view class="reading-layer">
-            <text class="reading-label-modern">今</text>
-            <text class="reading-text-modern">{{ fortune.summary }}</text>
-          </view>
-          <view v-if="fortune.caution" class="reading-layer">
-            <text class="reading-label-ancient">忌</text>
-            <text class="reading-text-ancient">{{ fortune.caution }}</text>
-          </view>
-        </view>
-      </view>
+      <ReadingCard
+        title="今日提示"
+        :layers="fortuneHintLayers"
+      />
 
       <!-- 五项运势 -->
       <view class="fortune-list">
@@ -660,56 +611,26 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
   font-size: 20rpx;
 }
 
-/* ===== Reading card (古→今→悟) ===== */
-.reading-card {
+/* ===== Current hour card ===== */
+.current-hour-card {
   padding: 24rpx;
+  border-left: 6rpx solid var(--gs-gold);
 }
 
-.reading-header {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 12rpx;
-  margin-bottom: 16rpx;
-}
-
-.reading-title {
-  color: var(--gs-ink);
-  font-size: 28rpx;
-  font-weight: 900;
-}
-
-.reading-sub {
-  color: var(--gs-muted);
-  font-size: 22rpx;
-  font-weight: 700;
-}
-
-.reading-body {
+.reading-body-inline {
   display: flex;
   flex-direction: column;
   gap: 12rpx;
 }
 
-.reading-layer {
+.reading-body-inline .reading-layer {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
   gap: 12rpx;
 }
 
-.reading-label-ancient {
-  flex: none;
-  width: 40rpx;
-  padding: 2rpx 0;
-  color: var(--gs-muted);
-  font-size: 18rpx;
-  font-weight: 700;
-  text-align: center;
-  border-bottom: 2rpx solid var(--gs-line);
-}
-
-.reading-label-modern {
+.rl-modern {
   flex: none;
   width: 40rpx;
   padding: 2rpx 0;
@@ -720,171 +641,21 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
   border-bottom: 2rpx solid var(--gs-blue);
 }
 
-.reading-label-insight {
-  flex: none;
-  width: 40rpx;
-  padding: 2rpx 0;
-  color: var(--gs-gold);
-  font-size: 18rpx;
-  font-weight: 700;
-  text-align: center;
-  border-bottom: 2rpx solid var(--gs-gold);
-}
-
-.reading-text-ancient {
-  color: var(--gs-muted);
-  font-size: 24rpx;
-  font-weight: 700;
-  line-height: 1.5;
-}
-
-.reading-text-modern {
+.rt-modern {
   color: var(--gs-ink);
   font-size: 24rpx;
   font-weight: 700;
   line-height: 1.5;
 }
 
-.reading-text-insight {
-  color: var(--gs-gold);
-  font-size: 22rpx;
-  font-weight: 700;
-  line-height: 1.5;
+/* Moon phase panel wrapper */
+.moon-phase-panel {
+  padding: 0;
 }
-
-/* ===== Advice card (左古右今) ===== */
-.advice-card {
-  padding: 24rpx;
-}
-
-.advice-section {
-  display: flex;
-  flex-direction: column;
-  gap: 16rpx;
-}
-
-.advice-row {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 14rpx;
-}
-
-.advice-mark {
-  flex: none;
-  width: 44rpx;
-  height: 44rpx;
-  border-radius: 50%;
-  color: #fff;
-  font-size: 22rpx;
-  line-height: 44rpx;
-  text-align: center;
-}
-
-.advice-good {
-  background: var(--gs-green);
-}
-
-.advice-bad {
-  background: var(--gs-red);
-}
-
-.advice-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-}
-
-.advice-ancient {
-  color: var(--gs-muted);
-  font-size: 22rpx;
-  font-weight: 700;
-  line-height: 1.4;
-}
-
-.advice-arrow {
-  color: var(--gs-line);
-  font-size: 18rpx;
-  font-weight: 700;
-}
-
-.advice-modern {
-  color: var(--gs-ink);
-  font-size: 24rpx;
-  font-weight: 800;
-  line-height: 1.4;
-}
-
-/* ===== God card (吉神凶神) ===== */
-.god-card {
-  padding: 24rpx;
-}
-
-.god-row {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 14rpx;
-  margin-bottom: 16rpx;
-}
-
-.god-row:last-child {
-  margin-bottom: 0;
-}
-
-.god-label {
-  flex: none;
-  width: 56rpx;
-  height: 36rpx;
-  border-radius: 8rpx;
-  color: #fff;
-  font-size: 18rpx;
-  font-weight: 800;
-  line-height: 36rpx;
-  text-align: center;
-}
-
-.god-good {
-  background: var(--gs-green);
-}
-
-.god-bad {
-  background: var(--gs-red);
-}
-
-.god-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-}
-
-.god-ancient {
-  color: var(--gs-muted);
-  font-size: 20rpx;
-  font-weight: 700;
-  line-height: 1.4;
-}
-
-.god-modern {
-  color: var(--gs-ink);
-  font-size: 24rpx;
-  font-weight: 800;
-  line-height: 1.4;
-}
-
-.god-trait {
-  color: var(--gs-blue);
-  font-size: 20rpx;
-  font-weight: 700;
-  line-height: 1.3;
-}
-
-/* ===== Current hour card ===== */
-.current-hour-card {
-  padding: 24rpx;
-  border-left: 6rpx solid var(--gs-gold);
+.moon-phase-panel :deep(.reading-card) {
+  border: none;
+  box-shadow: none;
+  border-radius: 16rpx 16rpx 0 0;
 }
 
 .current-hour-head {
@@ -1067,6 +838,16 @@ function onBirthdayChange(event: { detail?: { value?: string } }): void {
 /* ===== Pengzu card ===== */
 .pengzu-card {
   padding: 24rpx;
+}
+
+.pengzu-header {
+  margin-bottom: 16rpx;
+}
+
+.pengzu-title {
+  color: var(--gs-ink);
+  font-size: 28rpx;
+  font-weight: 900;
 }
 
 .pengzu-body {
